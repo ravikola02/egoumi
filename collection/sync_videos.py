@@ -570,12 +570,18 @@ def clip_camera(
     n_frames = round(duration * fps)
 
     # Fast pre-seek (input, keyframe) + accurate fine-seek (output) + re-encode.
-    pre = max(0.0, local_start - 2.0)
-    fine = local_start - pre
+    # egoumi change: seek to this camera's own frame grid (a quarter frame before start_frame) and cap the video
+    # at n_frames with timestamps passed through. Seeking to the raw unified time put the cut between two
+    # frames whenever a camera's offset was not a whole number of frames, and the CFR encoder then repeated
+    # the next frame at t=0 (clip frame 0 == frame 1; found with sim/render_capture.py + check_capture_sync.py).
+    seek = max(0.0, (start_frame - 0.25) / fps)
+    pre = max(0.0, seek - 2.0)
+    fine = seek - pre
     cmd = [
         "ffmpeg", "-v", "error",
         "-ss", f"{pre:.6f}", "-i", str(cam.path),
-        "-ss", f"{fine:.6f}", "-t", f"{duration:.6f}",
+        "-ss", f"{fine:.6f}", "-t", f"{n_frames / fps:.6f}",
+        "-frames:v", str(n_frames), "-fps_mode", "passthrough",
         # DJI MP4s carry an MJPEG attached-pic thumbnail + djmd/dbgi data
         # streams; map only the real video + audio so libx264/aac don't
         # choke on them.

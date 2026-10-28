@@ -58,8 +58,8 @@ def hand_meshes(model):
 
 
 class Scene3D:
-    def __init__(self, width, height, ambient=0.35):
-        self.scene = pyrender.Scene(bg_color=(0, 0, 0, 0), ambient_light=(ambient,) * 3)
+    def __init__(self, width, height, ambient=0.35, bg=(0, 0, 0, 0)):
+        self.scene = pyrender.Scene(bg_color=bg, ambient_light=(ambient,) * 3)
         self.r = pyrender.OffscreenRenderer(width, height)
         self.w, self.h = width, height
         self.cam_node = None

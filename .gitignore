@@ -11,3 +11,5 @@ cad/out_v2/
 CLAUDE.md
 # local raw captures and generated datasets
 data/
+# Claude Code worktrees / local settings
+.claude/
