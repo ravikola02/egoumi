@@ -1,4 +1,4 @@
-# UMI pinch gripper + ArUco head-camera tracking
+# EgoUMI: UMI pinch gripper + ArUco head-camera tracking
 
 > 🚧 **Work in progress.** The hardware is designed but not yet printed or fit-tested, and the tracking pipeline
 > has so far been tested **only in simulation**. Expect breaking changes.

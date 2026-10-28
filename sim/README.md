@@ -5,7 +5,7 @@ Synthetic head-camera episodes of the v3 gripper, the pose pipeline run on them,
 Everything runs in the HaWoR conda env from h2r_collection (or any env with pyrender, OpenCV >= 4.7, scipy) with headless EGL.
 
 ```bash
-cd umi_pinch_gripper        # repo root
+cd egoumi                  # repo root
 sim/run_sim_test.sh pick_place                                    # render -> pose -> preview
 MARKERS=configs/gripper_markers_jawflags.yaml sim/run_sim_test.sh pick_place_jawflags
 sim/run_sim_test.sh roll --preset roll --seed 1
