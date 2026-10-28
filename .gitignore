@@ -9,3 +9,5 @@ cad/out_v1/
 cad/out_v2/
 # local assistant notes
 CLAUDE.md
+# local raw captures and generated datasets
+data/

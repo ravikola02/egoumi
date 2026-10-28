@@ -25,7 +25,14 @@ ground truth, and the number of body tags used.*
 | `sim/`: synthetic head-camera episodes (textured CAD, ArUco stickers, hand stand-in, table tag, object, head bob, tremor, blur, noise) in HaWoR's frame layout, with ground truth | working |
 | `umi_pipe/` + `scripts/gripper_pose.py`: subpixel ArUco → multi-tag PnP (SQPNP + LM, outlier rejection, single-tag disambiguation) → joint body + jaw refinement → jaw width → world TCP pose | working in sim |
 | `scripts/preview_gripper.py`: the preview above, the gripper counterpart of HaWoR's MANO cam/world visualisation; also runs on real sequences without ground truth | working |
-| h2r_collection integration (`--source gripper`, camera calibration, SLAM masks, 14-d state) | planned |
+| `collection/`: 3-camera capture (head + 2 gripper/wrist cams) → sync → browser tagger → frame-exact clips → LeRobot v3.0 / v2.1, the h2r_collection flow without HaWoR ([details](collection/README.md)) | working, video-only: **no end-effector pose or gripper values yet** |
+| Gripper pose as dataset state (`--state-source gripper`), camera calibration, SLAM masks | planned |
+
+## Quick start: capture → LeRobot dataset
+```bash
+python3 collection/run_pipeline.py --session <session>   # data/raw/<session>/{top_cam,left_w_cam,right_w_cam}/
+```
+See [collection/README.md](collection/README.md).
 
 ## Quick start (simulation)
 Runs in a Python env with `pyrender`, `trimesh`, `opencv-python` (≥ 4.7, ArUco), `scipy`, `pyyaml` and
@@ -60,6 +67,7 @@ Not modelled yet: lens distortion, rolling shutter, glare, real SLAM drift. The 
 ## Layout
 ```
 cad/            CadQuery build scripts (v1 → v3), Stanford UMI input STEP, v3 print files, renders
+collection/     capture → LeRobot pipeline (sync, tagger, converter)
 configs/        marker layouts (body frame = CAD assembly frame, metres), sim camera
 docs/           pipeline plan for h2r_collection, print notes
 sim/            episode renderer, mesh export, one-command test runner
