@@ -22,7 +22,7 @@ Output: `sim/episodes/<name>/preview/gripper_preview.mp4`, `metrics.json` and `t
 | `umi_pipe/` | shared code: `model.py` (tags, jaw motion), `render.py` (pyrender scenes), `pose.py` (detection, PnP, jaw fit, table tag) |
 | `sim/render_episode.py` | keyframed pick-place / roll, head bob, hand tremor, motion blur, noise, 2× supersampling, hand stand-in, object; writes HaWoR layout `extracted_images/%04d.jpg` + `gt.npz` (+ `gt_masks.npz`) |
 | `scripts/gripper_pose.py` | per frame: subpixel ArUco → multi-tag SQPNP+LM (outlier tags dropped; single tag = IPPE disambiguated by the previous frame) → joint body+jaw refine → 1-D jaw travel per side → world pose; short gaps interpolated |
-| `scripts/preview_gripper.py` | camera view (estimated mesh over the frame, tags, TCP axes, GT cross) + world view (estimate vs GT ghost, trails, frustums) + timeline; works without `gt.npz` on real sequences |
+| `scripts/preview_gripper.py` | camera view (estimated mesh over the frame, tags, TCP axes, GT cross) + world view (estimate vs GT ghost, trails, the moving head camera) + timeline; the world view auto-frames the gripper track and the head-camera path; `--style presentation` shows the raw recording next to the reconstruction with title bars and a legend (README media); works without `gt.npz` on real sequences |
 
 `--cam-source`: `gt` = perfect SLAM (isolates the marker pipeline), `none` = camera frame, `table` = per-frame
 table-tag pose (needs a table tag; the sim no longer renders one: `Scene3D.add_table(tag=True)` puts it back).

@@ -43,11 +43,76 @@ def draw_poly(img, uv, ok, color, thick=2, closed=False):
         cv2.polylines(img, [np.array(pts, np.int32)], closed, color, thick, cv2.LINE_AA)
 
 
-def frustum_lines(K, w, h, depth=0.08):
+def frustum_lines(K, w, h, depth=0.12):
     Ki = np.linalg.inv(K)
     c = [Ki @ [u, v, 1.0] * depth for u, v in [(0, 0), (w, 0), (w, h), (0, h)]]
     o = np.zeros(3)
     return [[o, c[0]], [o, c[1]], [o, c[2]], [o, c[3]], [c[0], c[1], c[2], c[3], c[0]]]
+
+
+CAM_BGR = (40, 160, 255)              # recording head camera (orange)
+
+
+def banner(img, title, subtitle="", right="", dot=None):
+    """Presentation title bar across the top of a panel: bold title, smaller subtitle, optional right-side text and
+    a coloured dot (e.g. a blinking REC light)."""
+    h = 54
+    over = img.copy()
+    cv2.rectangle(over, (0, 0), (img.shape[1], h), (18, 18, 22), -1)
+    img[:h] = cv2.addWeighted(over[:h], 0.78, img[:h], 0.22, 0)
+    x = 16
+    if dot is not None:
+        cv2.circle(img, (x + 9, 27), 9, dot, -1, cv2.LINE_AA)
+        x += 30
+    cv2.putText(img, title, (x, 35), cv2.FONT_HERSHEY_DUPLEX, 0.8, (255, 255, 255), 1, cv2.LINE_AA)
+    (tw, _), _ = cv2.getTextSize(title, cv2.FONT_HERSHEY_DUPLEX, 0.8, 1)
+    if subtitle:
+        cv2.putText(img, subtitle, (x + tw + 14, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.56, (190, 196, 205), 1, cv2.LINE_AA)
+    if right:
+        (rw, _), _ = cv2.getTextSize(right, cv2.FONT_HERSHEY_DUPLEX, 0.62, 1)
+        cv2.putText(img, right, (img.shape[1] - rw - 16, 35), cv2.FONT_HERSHEY_DUPLEX, 0.62, (255, 255, 255), 1,
+                    cv2.LINE_AA)
+
+
+def legend(img, items):
+    """Row of colour chips + labels on a translucent strip along the bottom of a panel."""
+    y = img.shape[0] - 16
+    over = img.copy()
+    cv2.rectangle(over, (0, y - 22), (img.shape[1], img.shape[0]), (18, 18, 22), -1)
+    img[y - 22:] = cv2.addWeighted(over[y - 22:], 0.72, img[y - 22:], 0.28, 0)
+    x = 16
+    for colr, label in items:
+        cv2.rectangle(img, (x, y - 10), (x + 20, y + 2), colr, -1)
+        cv2.putText(img, label, (x + 27, y + 1), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (225, 228, 232), 1, cv2.LINE_AA)
+        (lw, _), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+        x += 27 + lw + 24
+
+
+def label(img, text, uv, colr):
+    """Small callout text with a dark outline next to a projected point."""
+    org = (int(uv[0]) + 12, int(uv[1]) - 10)
+    cv2.putText(img, text, org, cv2.FONT_HERSHEY_SIMPLEX, 0.52, (15, 15, 15), 3, cv2.LINE_AA)
+    cv2.putText(img, text, org, cv2.FONT_HERSHEY_SIMPLEX, 0.52, colr, 1, cv2.LINE_AA)
+
+
+def camera_meshes():
+    """Head-camera stand-in in the OpenCV camera frame (z forward): (body behind the origin, lens in front)."""
+    import trimesh
+    body = trimesh.creation.box(extents=[0.07, 0.045, 0.04])
+    body.apply_translation([0, 0, -0.022])
+    lens = trimesh.creation.cylinder(radius=0.014, height=0.018)
+    lens.apply_translation([0, 0, 0.007])
+    return body, lens
+
+
+def auto_view(points, f_px, ph, direction=(1.0, 0.12, 0.62), margin=1.08):
+    """(eye, target) that fit `points` (N,3): look at the bounding-box centre from `direction`, far enough that the
+    bounding sphere fits the vertical field of view."""
+    ctr = (points.min(axis=0) + points.max(axis=0)) / 2
+    r = max(np.linalg.norm(points - ctr, axis=1).max(), 0.05)
+    half = np.arctan((ph / 2) / f_px)
+    d = np.asarray(direction, float) / np.linalg.norm(direction)
+    return ctr + d * (r / np.sin(half)) * margin, ctr
 
 
 def put(img, text, org, scale=0.55, color=(255, 255, 255)):
@@ -140,7 +205,11 @@ def main():
     ap.add_argument("--out", default=None, help="default <seq>/preview/gripper_preview.mp4")
     ap.add_argument("--panel-width", type=int, default=960)
     ap.add_argument("--alpha", type=float, default=0.55, help="overlay opacity of the estimated mesh")
-    ap.add_argument("--view", default=None, help="world-view eye 'x,y,z' [m]; default auto from the TCP track")
+    ap.add_argument("--view", default=None,
+                    help="world-view eye 'x,y,z' [m]; default: auto-framed on the TCP track + the head-camera path")
+    ap.add_argument("--style", choices=["debug", "presentation"], default="debug",
+                    help="debug: estimate overlaid on the frame + tag outlines + readouts (default); presentation: "
+                         "raw recording | reconstruction, with title bars and a legend (README media)")
     ap.add_argument("--max-frames", type=int, default=0)
     ap.add_argument("--fps", type=float, default=None)
     a = ap.parse_args()
@@ -192,10 +261,17 @@ def main():
         obj = Sw.add_mesh(trimesh.creation.box(extents=[0.04] * 3), (0.75, 0.15, 0.12, 1.0))
     tcp_e = p["T_world_tcp"][:, :3, 3]
     valid = p["world_src"] > 0
-    ctr = np.median(tcp_e[valid], axis=0) if valid.any() else np.zeros(3)
-    eye = np.array([float(v) for v in a.view.split(",")]) if a.view else ctr + [0.45, -0.75, 0.55]
-    T_wv = look_at_cv(eye, ctr)
+    cams_w = g["T_world_cam"][:n] if g is not None else p["T_world_cam"]         # the recording head camera
+    cam_c = cams_w[:, :3, 3]
     Kw = Ks.copy(); Kw[0, 0] = Kw[1, 1] = 0.75 * pw
+    if a.view:
+        eye = np.array([float(v) for v in a.view.split(",")])
+        ctr = np.median(tcp_e[valid], axis=0) if valid.any() else np.zeros(3)
+    else:   # frame the gripper track and the head camera's path together, seen from the side
+        eye, ctr = auto_view(np.concatenate([tcp_e[valid] if valid.any() else tcp_e, cam_c]), Kw[1, 1], ph)
+    T_wv = look_at_cv(eye, ctr)
+    cam_body, cam_lens = camera_meshes()
+    cam_nodes = [Sw.add_mesh(cam_body, (0.78, 0.80, 0.83, 1.0)), Sw.add_mesh(cam_lens, (1.0, 0.62, 0.16, 1.0))]
     Sw.set_camera(Kw, T_wv)   # Kw is already at panel resolution
     T_vw = inv(T_wv)
     fr_lines = frustum_lines(K, W, H)
@@ -209,49 +285,14 @@ def main():
         img = cv2.resize(cv2.imread(frames[f]), (pw, ph), interpolation=cv2.INTER_AREA)
         tr = model.travel_from_width(p["width"][f]) if np.isfinite(p["width"][f]) else 0.0
         src = int(p["world_src"][f]); body_ok = p["body_src"][f] > 0 or src > 0
+        pres = a.style == "presentation"
         # ---- camera view ----
-        if body_ok:
-            Sc.set_gripper("est", p["T_cam_body"][f], tr)
-            col, dep = Sc.render()
-            m = (dep > 0)[..., None]
-            img = np.where(m, (img * (1 - a.alpha) + cv2.cvtColor(col[..., :3], cv2.COLOR_RGB2BGR) * a.alpha), img).astype(np.uint8)
-        d = dets[f]
-        used = set(d.get("used", [])); rej = set(d.get("rejected", []))
-        for k, c in d["tags"].items():
-            k = int(k); c = (np.array(c) + 0.5) * s - 0.5
-            colr = (0, 0, 255) if k in rej else (80, 220, 80) if k in used else (0, 215, 255) if k in tag_ids_jaw \
-                else (255, 220, 0) if k == model.table_tag.id else (160, 160, 160)
-            cv2.polylines(img, [np.round(c).astype(np.int32)], True, colr, 2, cv2.LINE_AA)
-            cv2.circle(img, tuple(np.round(c[0]).astype(int)), 3, colr, -1, cv2.LINE_AA)
-            put(img, str(k), tuple(np.round(c.mean(0) + [-6, 5]).astype(int)), 0.45, colr)
-        if body_ok:
-            T_ct = p["T_cam_body"][f] @ model.T_body_tcp
-            ax_pts = apply(T_ct, np.array([[0, 0, 0], [0.03, 0, 0], [0, 0.03, 0], [0, 0, 0.03]]))
-            uv, ok = project(Ks, np.eye(4), ax_pts)
-            if ok.all():
-                for j, bgr in zip((1, 2, 3), ((0, 0, 255), (0, 255, 0), (255, 0, 0))):
-                    cv2.line(img, tuple(np.round(uv[0]).astype(int)), tuple(np.round(uv[j]).astype(int)), bgr, 2, cv2.LINE_AA)
-        if g is not None:
-            T_cw_gt = inv(g["T_world_cam"][f])
-            uv, ok = project(Ks, T_cw_gt, g["T_world_tcp"][f][None, :3, 3])
-            if ok[0]:
-                cv2.drawMarker(img, tuple(np.round(uv[0]).astype(int)), GT_BGR, cv2.MARKER_CROSS, 16, 2, cv2.LINE_AA)
-        srcname = {0: "INVALID", 1: "measured", 2: "interpolated"}[src]
-        put(img, f"frame {f + 1}/{n}  t={t[f]:.2f}s  pose: {srcname}", (10, 22),
-            color=(255, 255, 255) if src == 1 else (180, 180, 180) if src == 2 else (90, 90, 255))
-        line2 = f"body tags {sorted(used)}  rms {p['rms'][f]:.2f}px" if p["body_src"][f] else "no body tags"
-        if p["single"][f]:
-            line2 += "  SINGLE-TAG" + ("" if p["confident"][f] else " (ambiguous)")
-        put(img, line2, (10, 44))
-        wtxt = f"width {p['width'][f] * 1000:.1f} mm" if np.isfinite(p["width"][f]) else "width n/a"
-        wtxt += (" (jaw tag, WEAK: 1 body tag)" if p.get("width_weak", np.zeros(n, bool))[f] else " (jaw tag)") if p["width_src"][f] == 1 else " (interp)" if p["width_src"][f] == 2 else ""
-        if g is not None:
-            wtxt += f"  GT {g['width'][f] * 1000:.1f}"
-            if src:
-                wtxt = f"err {e_tcp[f, 0] * 1000:.1f} mm {e_tcp[f, 1]:.2f} deg  |  " + wtxt
-        put(img, wtxt, (10, 66))
-        put(img, "camera view: estimate (purple)  tags: green used / yellow jaw / cyan table / red rejected",
-            (10, ph - 12), 0.45, (200, 200, 200))
+        if pres:
+            mins, secs = divmod(t[f], 60)
+            banner(img, "RECORDING", "egocentric head camera", right=f"{int(mins):02d}:{secs:05.2f}",
+                   dot=(40, 40, 235) if (f // 15) % 2 == 0 else (70, 70, 110))
+        else:
+            draw_debug_camera_view(img, f, n, t, p, g, dets, model, Sc, Ks, s, tr, src, body_ok, e_tcp, ph, a.alpha)
 
         # ---- world view ----
         if g is not None:
@@ -259,26 +300,44 @@ def main():
             if obj is not None:
                 Sw.scene.set_pose(obj, g["T_world_object"][f])
         Sw.set_gripper("est", p["T_world_body"][f], tr, visible=src > 0)
+        for nd in cam_nodes:
+            Sw.scene.set_pose(nd, cams_w[f])
         col, _ = Sw.render()
         wv = cv2.cvtColor(col[..., :3], cv2.COLOR_RGB2BGR)
-        bg = (col[..., 3] == 0)
-        wv[bg] = (38, 33, 29)
+        wv[col[..., 3] == 0] = (38, 33, 29)
+        uv, ok = project(Kw, T_vw, cam_c[:f + 1]); draw_poly(wv, uv, ok, CAM_BGR, 2)          # head-camera path
         if g is not None:
             uv, ok = project(Kw, T_vw, g["T_world_tcp"][:f + 1, :3, 3]); draw_poly(wv, uv, ok, GT_BGR, 2)
         sel = np.where(valid[:f + 1])[0]
         if len(sel):
             uv, ok = project(Kw, T_vw, tcp_e[sel]); draw_poly(wv, uv, ok, EST_BGR, 2)
-        for T_wc, colr in ([(g["T_world_cam"][f], GT_BGR)] if g is not None else []) + \
-                          ([(p["T_world_cam"][f], EST_BGR)] if p["cam_source"] == "table" or g is None else []):
+        for seg in fr_lines:
+            uv, ok = project(Kw, T_vw, apply(cams_w[f], np.array(seg))); draw_poly(wv, uv, ok, CAM_BGR, 2)
+        if g is None or p["cam_source"] == "table":      # an estimated camera differs from the recording one: draw it
             for seg in fr_lines:
-                uv, ok = project(Kw, T_vw, apply(T_wc, np.array(seg))); draw_poly(wv, uv, ok, colr, 2)
-        put(wv, "world view: estimate (purple) vs GT (green ghost), TCP trails, head camera", (10, 22))
-        put(wv, f"cam source: {p['cam_source']}", (10, 44))
-        if metrics:
-            mm = metrics["tcp_world_mm"]; dg = metrics["tcp_world_deg"]
-            if mm:
-                put(wv, f"episode: TCP median {mm['median']:.1f} mm / p90 {mm['p90']:.1f} mm, "
-                        f"{dg['median']:.2f} deg; valid {metrics['coverage_valid_pct']:.0f} %", (10, 66))
+                uv, ok = project(Kw, T_vw, apply(p["T_world_cam"][f], np.array(seg))); draw_poly(wv, uv, ok, EST_BGR, 1)
+        if pres:
+            uv, ok = project(Kw, T_vw, cam_c[f][None])
+            if ok[0]:
+                label(wv, "head camera", uv[0], CAM_BGR)
+            if src > 0:
+                uv, ok = project(Kw, T_vw, tcp_e[f][None])
+                if ok[0]:
+                    label(wv, "gripper", uv[0], (230, 190, 255))
+            banner(wv, "RECONSTRUCTION", "3D gripper pose from ArUco markers")
+            items = [(EST_BGR, "reconstructed gripper + TCP path")]
+            if g is not None:
+                items.append((GT_BGR, "ground truth"))
+            items.append((CAM_BGR, "head camera + path"))
+            legend(wv, items)
+        else:
+            put(wv, "world view: estimate (purple) vs GT (green ghost), TCP trails, head camera (orange)", (10, 22))
+            put(wv, f"cam source: {p['cam_source']}", (10, 44))
+            if metrics:
+                mm = metrics["tcp_world_mm"]; dg = metrics["tcp_world_deg"]
+                if mm:
+                    put(wv, f"episode: TCP median {mm['median']:.1f} mm / p90 {mm['p90']:.1f} mm, "
+                            f"{dg['median']:.2f} deg; valid {metrics['coverage_valid_pct']:.0f} %", (10, 66))
 
         # ---- timeline cursor ----
         tl_f = tl.copy()
@@ -293,6 +352,57 @@ def main():
     proc.stdin.close(); proc.wait()
     Sc.close(); Sw.close()
     print(f"wrote {out}")
+
+
+def draw_debug_camera_view(img, f, n, t, p, g, dets, model, Sc, Ks, s, tr, src, body_ok, e_tcp, ph, alpha):
+    """Debug camera panel, drawn in place: estimated mesh over the frame, tag outlines, TCP axes, GT TCP, readouts."""
+    tag_ids_jaw = {tt.id for tt in model.jaw_tags}
+    if body_ok:
+        Sc.set_gripper("est", p["T_cam_body"][f], tr)
+        col, dep = Sc.render()
+        m = (dep > 0)[..., None]
+        img[:] = np.where(m, img * (1 - alpha) + cv2.cvtColor(col[..., :3], cv2.COLOR_RGB2BGR) * alpha,
+                          img).astype(np.uint8)
+    d = dets[f]
+    used = set(d.get("used", [])); rej = set(d.get("rejected", []))
+    for k, c in d["tags"].items():
+        k = int(k); c = (np.array(c) + 0.5) * s - 0.5
+        colr = (0, 0, 255) if k in rej else (80, 220, 80) if k in used else (0, 215, 255) if k in tag_ids_jaw \
+            else (255, 220, 0) if k == model.table_tag.id else (160, 160, 160)
+        cv2.polylines(img, [np.round(c).astype(np.int32)], True, colr, 2, cv2.LINE_AA)
+        cv2.circle(img, tuple(np.round(c[0]).astype(int)), 3, colr, -1, cv2.LINE_AA)
+        put(img, str(k), tuple(np.round(c.mean(0) + [-6, 5]).astype(int)), 0.45, colr)
+    if body_ok:
+        T_ct = p["T_cam_body"][f] @ model.T_body_tcp
+        ax_pts = apply(T_ct, np.array([[0, 0, 0], [0.03, 0, 0], [0, 0.03, 0], [0, 0, 0.03]]))
+        uv, ok = project(Ks, np.eye(4), ax_pts)
+        if ok.all():
+            for j, bgr in zip((1, 2, 3), ((0, 0, 255), (0, 255, 0), (255, 0, 0))):
+                cv2.line(img, tuple(np.round(uv[0]).astype(int)), tuple(np.round(uv[j]).astype(int)), bgr, 2,
+                         cv2.LINE_AA)
+    if g is not None:
+        uv, ok = project(Ks, inv(g["T_world_cam"][f]), g["T_world_tcp"][f][None, :3, 3])
+        if ok[0]:
+            cv2.drawMarker(img, tuple(np.round(uv[0]).astype(int)), GT_BGR, cv2.MARKER_CROSS, 16, 2, cv2.LINE_AA)
+    srcname = {0: "INVALID", 1: "measured", 2: "interpolated"}[src]
+    put(img, f"frame {f + 1}/{n}  t={t[f]:.2f}s  pose: {srcname}", (10, 22),
+        color=(255, 255, 255) if src == 1 else (180, 180, 180) if src == 2 else (90, 90, 255))
+    line2 = f"body tags {sorted(used)}  rms {p['rms'][f]:.2f}px" if p["body_src"][f] else "no body tags"
+    if p["single"][f]:
+        line2 += "  SINGLE-TAG" + ("" if p["confident"][f] else " (ambiguous)")
+    put(img, line2, (10, 44))
+    wtxt = f"width {p['width'][f] * 1000:.1f} mm" if np.isfinite(p["width"][f]) else "width n/a"
+    if p["width_src"][f] == 1:
+        wtxt += " (jaw tag, WEAK: 1 body tag)" if p.get("width_weak", np.zeros(n, bool))[f] else " (jaw tag)"
+    elif p["width_src"][f] == 2:
+        wtxt += " (interp)"
+    if g is not None:
+        wtxt += f"  GT {g['width'][f] * 1000:.1f}"
+        if src:
+            wtxt = f"err {e_tcp[f, 0] * 1000:.1f} mm {e_tcp[f, 1]:.2f} deg  |  " + wtxt
+    put(img, wtxt, (10, 66))
+    put(img, "camera view: estimate (purple)  tags: green used / yellow jaw / cyan table / red rejected",
+        (10, ph - 12), 0.45, (200, 200, 200))
 
 
 if __name__ == "__main__":

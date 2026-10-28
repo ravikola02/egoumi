@@ -1,5 +1,9 @@
 # EgoUMI: UMI pinch gripper + ArUco head-camera tracking
 
+**The gripper design is adapted from Stanford's [Universal Manipulation Interface (UMI)](https://umi-gripper.github.io/)**
+(Chi et al., RSS 2024): its CAD, mechanism and soft fingers are kept, the trigger is replaced by a thumb + index
+pinch, and the side mirrors are removed to make room for ArUco markers.
+
 > 🚧 **Work in progress.** The hardware is designed but not yet printed or fit-tested. The gripper tracking has been
 > tested **only in simulation**; the capture → LeRobot pipeline has also run on real 3-camera footage, without
 > gripper poses. Expect breaking changes.
@@ -12,12 +16,14 @@ HaWoR hand pose + head SLAM → LeRobot dataset). The goal is a `--source grippe
 HaWoR hand pose with the gripper pose from the markers and keeps HaWoR's head-camera SLAM
 ([plan](docs/h2r_gripper_plan.md)).
 
-[![Sim preview: estimated gripper over the head-camera frame, world view vs ground truth, error timeline](assets/preview_pick_place.gif)](assets/preview_pick_place.mp4)
+[![Recording (egocentric head camera) next to the 3D reconstruction of the gripper, with error timeline](assets/preview_pick_place.gif)](assets/preview_pick_place.mp4)
 
-*Simulated pick-and-place from the egocentric head camera ([mp4](assets/preview_pick_place.mp4),
-[wrist-roll episode](assets/preview_roll.mp4)). Left: head-camera frame with the estimated gripper mesh (purple), detected tags and the TCP axes. Right: world view,
-estimate vs ground-truth ghost (green), TCP trails and the head camera. Bottom: TCP error, jaw width estimate vs
-ground truth, and the number of body tags used.*
+*Simulated pick-and-place ([mp4](assets/preview_pick_place.mp4)). **Left, RECORDING:** what the egocentric head
+camera sees. **Right, RECONSTRUCTION:** the gripper pose recovered from the ArUco markers (purple, with its TCP path)
+against ground truth (green), and the head camera moving through the scene (orange, with its path). Bottom: TCP
+error, jaw width, and the number of body tags in view. Made with `scripts/preview_gripper.py --style presentation`;
+the default `--style debug` overlays the estimate on the frame with per-tag detail
+([wrist-roll episode, debug style](assets/preview_roll.mp4)).*
 
 ## What's here
 | Part | Status |

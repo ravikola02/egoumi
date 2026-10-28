@@ -150,7 +150,7 @@ def main():
 
     # ---- scene ----
     import trimesh
-    S = Scene3D(W * ss, H * ss)
+    S = Scene3D(W * ss, H * ss, bg=(0.58, 0.59, 0.61, 1.0))   # room grey beyond the wall/floor
     S.add_light((0.3, -0.4, -1.0), 3.0); S.add_light((-0.5, 0.6, -0.6), 1.0)
     S.add_table(model)
     floor = trimesh.creation.box(extents=[4, 4, 0.01]); floor.apply_translation([0, 0, -0.75])
