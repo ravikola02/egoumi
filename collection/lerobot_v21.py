@@ -51,12 +51,13 @@ class V21DatasetWriter:
     def add_episode(self, task_label: str, task_index: int,
                     state: Optional[np.ndarray], action: Optional[np.ndarray],
                     clips: Dict[str, Path], verbose: bool = True,
-                    n_frames: Optional[int] = None) -> Dict[str, int]:
+                    n_frames: Optional[int] = None,
+                    extra: Optional[Dict[str, np.ndarray]] = None) -> Dict[str, int]:
         episode_index = self.episode_count
         n = int(state.shape[0]) if state is not None else int(n_frames)
 
         table = episode_frame_table(state, action, self.fps, episode_index,
-                                    task_index, self.global_index, n_frames=n)
+                                    task_index, self.global_index, n_frames=n, extra=extra)
         path = self._path(V21_DATA_PATH, episode_index)
         path.parent.mkdir(parents=True, exist_ok=True)
         pq.write_table(table, path)
@@ -79,7 +80,7 @@ class V21DatasetWriter:
                 print(f"  [G] {role:11} -> {out.relative_to(self.out_root)}  {cnt} frames{flag}")
 
         stats = compute_episode_stats(state, action, self.fps, episode_index, task_index,
-                                      self.global_index, video_samples, n_frames=n)
+                                      self.global_index, video_samples, n_frames=n, extra=extra)
         self._ep_stats.append(stats)
         self.episode_rows.append({"episode_index": episode_index, "tasks": [task_label], "length": n})
         self.global_index += n

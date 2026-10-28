@@ -58,7 +58,10 @@ def main(argv=None) -> int:
                    help="holds raw/<session>/ and output/<collection>/ (default: %(default)s; "
                         "env EGOUMI_DATA_ROOT)")
     p.add_argument("--dataset-version", choices=["v21", "v30"], default="v30")
-    p.add_argument("--state-source", default="none", help="none (video-only, default) | zeros (placeholder)")
+    p.add_argument("--state-source", default="none", help="none (video-only, default) | zeros | sim_gt | aruco")
+    p.add_argument("--sim-gt", help="passed to the converter (sim sessions)")
+    p.add_argument("--camera", help="passed to the converter (head intrinsics for aruco)")
+    p.add_argument("--markers", help="passed to the converter (marker layout)")
     p.add_argument("--fps", default="auto", help="auto = the head clips' own rate")
     p.add_argument("--image-size", default="1280x720")
     p.add_argument("--skip-tag", action="store_true", help="reuse the existing cut sheet + clips")
@@ -112,6 +115,9 @@ def main(argv=None) -> int:
            "--state-source", args.state_source, "--fps", str(args.fps), "--image-size", args.image_size]
     if args.overwrite:
         cmd.append("--overwrite")
+    for flag in ("sim_gt", "camera", "markers"):
+        if getattr(args, flag):
+            cmd += [f"--{flag.replace('_', '-')}", getattr(args, flag)]
     print(f"[stage 2] converter -> {' '.join(cmd)}")
     rc = subprocess.call(cmd, cwd=str(REPO_ROOT), env=env)
     print("\nDone.  Dataset at:", out) if rc == 0 else print(f"\nConverter exited with status {rc}")

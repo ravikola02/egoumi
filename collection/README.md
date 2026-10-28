@@ -47,12 +47,17 @@ Camera keys: `observation.images.{head,wrist_left,wrist_right}` (identical to h2
 |---|---|---|
 | `none` (default) | absent: video-only dataset | viewing, visual pre-training, checking cuts and sync |
 | `zeros` | 14-d zeros in the h2r_collection layout (`left/right.eef.{x,y,z,roll,pitch,yaw}`, `left/right.gripper`), `info.json → egoumi.state_placeholder: true` | smoke-testing training code only; **never train on it** |
-| `gripper` (planned) | ArUco gripper TCP pose + jaw width (`scripts/gripper_pose.py`) | the real thing |
+| `aruco` | right gripper TCP pose reconstructed from the **head clips** with the ArUco pipeline (`umi_pipe.pose`); `right.gripper` from the jaw tags (0 where unseen); left arm zero. Head-camera motion comes from `--cam-motion` (only `sim_gt` for now: SLAM is not wired). With `--sim-gt` the same dataset also gets **`observation.state_gt` / `action_gt`**, the ground truth in the same frame and layout | testing reconstruction against ground truth; real captures once SLAM is in |
+| `sim_gt` | the sim ground truth only (`sim/render_capture.py` sessions) | testing the trajectory plumbing |
 
 - Episode length = the shortest camera clip at `--fps` (floor), so every camera has exactly one frame per row.
 - `--fps auto` (default) keeps the cameras' own rate instead of resampling (h2r_collection forced 30 for HaWoR).
 - v2.1 output also writes `meta/episodes_stats.jsonl`, so LeRobot's own v2.1 → v3.0 converter accepts it unchanged.
-- `meta/egoumi_episodes.json` maps dataset episode indices to cut-sheet names and per-camera frame counts.
+- `meta/egoumi_episodes.json` maps dataset episode indices to cut-sheet names and per-camera frame counts, plus the
+  state source's per-episode report (pose coverage, single-tag share, gripper coverage, error vs ground truth).
+- Trajectory convention (as in h2r_collection): world = the episode's first head-camera frame, OpenCV optical axes,
+  metres; eef +z = approach (gripper body +Y), +x = jaw axis; rpy = intrinsic XYZ, wrapped; gripper 1 = closed;
+  `action[t] = state[t+1]`.
 
 ## Dummy capture for testing (pyrender)
 `sim/render_capture.py` renders a raw session in this layout: head camera + right gripper camera (a GoPro on the
@@ -89,6 +94,11 @@ h2r_collection's converter. `convert_to_lerobot.py`, `state_sources.py` and `run
   `creation_time` to whole seconds only, so metadata alone was off by 183 ms and 1,567 ms: the claps matter.
 - Every clip matches the raw recording frame-exactly at both ends (`sim/check_capture_sync.py`); the blank feed
   stays blank; 525 frames load in LeRobot 0.4.1 with both the PyAV and torchcodec backends.
+- Trajectory test (`run_pipeline.py --skip-tag --state-source aruco --sim-gt ... --camera ...`): one dataset with
+  both `observation.state` (predicted) and `observation.state_gt`. Pose found on 100 % of frames; TCP error median
+  1.6 / 0.5 / 2.2 mm, p90 5.5 / 1.2 / 7.5 mm, max 23.6 / 2.4 / 16.7 mm (pick-and-place / wrist roll / put back;
+  the large ones are single-tag frames). `state_gt` matches the independent `sim_gt` build exactly; `action` and
+  `action_gt` are the next state within every episode.
 - **Cutter fix** (`sync_videos.clip_camera`, marked `egoumi change`): for a camera whose start offset is not a whole
   number of frames, clip frame 0 used to duplicate frame 1 (one frame dropped at every cut). It now seeks on the
   camera's own frame grid and caps at `-frames:v` with passthrough timestamps. h2r_collection still has the old code.

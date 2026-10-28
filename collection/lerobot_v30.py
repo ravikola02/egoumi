@@ -1,5 +1,6 @@
 # Vendored from h2r_collection (github.com/ravikola02/h2r_collection, MIT) scripts/lerobot_v30.py at 0783627.
-# egoumi change: observation.state / action are optional (None -> video-only episode, length from n_frames).
+# egoumi change: observation.state / action are optional (None -> video-only episode, length from n_frames),
+# and extra float columns (e.g. observation.state_gt) can be added per episode.
 """LeRobot v3.0 dataset writer (``--dataset-version v30``).
 
 Torch-free: importable outside the hawor env, which keeps the layout
@@ -65,7 +66,8 @@ IMAGE_SAMPLES_PER_EPISODE = 8
 def episode_frame_table(state: Optional[np.ndarray], action: Optional[np.ndarray],
                         fps: float, episode_index: int, task_index: int,
                         global_index_offset: int,
-                        n_frames: Optional[int] = None) -> pa.Table:
+                        n_frames: Optional[int] = None,
+                        extra: Optional[Dict[str, np.ndarray]] = None) -> pa.Table:
     """Per-frame rows for one episode, LeRobot column layout.
 
     state/action stored as fixed-size list<float32>[D]; ``timestamp`` is
@@ -76,7 +78,7 @@ def episode_frame_table(state: Optional[np.ndarray], action: Optional[np.ndarray
     frame_index = np.arange(n, dtype=np.int64)
     timestamp = (frame_index / fps).astype(np.float32)
     cols = {}
-    for key, arr in (("observation.state", state), ("action", action)):
+    for key, arr in [("observation.state", state), ("action", action)] + list((extra or {}).items()):
         if arr is not None:
             arr = arr.astype(np.float32)
             cols[key] = pa.array([row.tolist() for row in arr],
@@ -125,7 +127,8 @@ def compute_episode_stats(state: Optional[np.ndarray], action: Optional[np.ndarr
                           fps: float, episode_index: int, task_index: int,
                           global_index_offset: int,
                           video_samples: Dict[str, np.ndarray],
-                          n_frames: Optional[int] = None) -> Dict:
+                          n_frames: Optional[int] = None,
+                          extra: Optional[Dict[str, np.ndarray]] = None) -> Dict:
     """Stats for every feature of one episode (numeric exact, images from
     sampled frames)."""
     n = int(state.shape[0]) if state is not None else int(n_frames)
@@ -135,6 +138,8 @@ def compute_episode_stats(state: Optional[np.ndarray], action: Optional[np.ndarr
         cols["observation.state"] = state.astype(np.float64)
     if action is not None:
         cols["action"] = action.astype(np.float64)
+    for key, arr in (extra or {}).items():
+        cols[key] = np.asarray(arr, np.float64)
     cols.update({
         "timestamp":     (frame_index / fps).reshape(-1, 1),
         "frame_index":   frame_index.reshape(-1, 1),
@@ -279,7 +284,8 @@ class V30DatasetWriter:
                     state: Optional[np.ndarray], action: Optional[np.ndarray],
                     clips: Dict[str, Path],
                     verbose: bool = True,
-                    n_frames: Optional[int] = None) -> Dict[str, int]:
+                    n_frames: Optional[int] = None,
+                    extra: Optional[Dict[str, np.ndarray]] = None) -> Dict[str, int]:
         """Append one episode (frame rows + camera videos + stats).
 
         Returns the per-role encoded frame counts, mirroring the v2.1
@@ -289,7 +295,7 @@ class V30DatasetWriter:
         n = int(state.shape[0]) if state is not None else int(n_frames)
 
         table = episode_frame_table(state, action, self.fps, episode_index,
-                                    task_index, self.global_index, n_frames=n)
+                                    task_index, self.global_index, n_frames=n, extra=extra)
         if (self._tables and (self._tables_bytes + table.nbytes) / (1 << 20)
                 >= self.data_file_size_mb):
             self._flush_data()
@@ -355,7 +361,7 @@ class V30DatasetWriter:
 
         stats = compute_episode_stats(state, action, self.fps, episode_index,
                                       task_index, self.global_index,
-                                      video_samples, n_frames=n)
+                                      video_samples, n_frames=n, extra=extra)
         self._ep_stats.append(stats)
         row.update(_flatten_stats(stats))
         self.episode_rows.append(row)

@@ -66,7 +66,7 @@ def build_features(fps: float, size: Tuple[int, int], roles: List[str], source) 
     w, h = size
     features: Dict[str, Dict] = {}
     if source.dim:
-        for key in ("observation.state", "action"):
+        for key in ["observation.state", "action"] + list(getattr(source, "extra_keys", [])):
             features[key] = {"dtype": "float32", "shape": [source.dim], "names": list(source.names)}
     features.update({
         "timestamp":     {"dtype": "float32", "shape": [1], "names": None},
@@ -90,7 +90,14 @@ def main(argv=None) -> int:
     p.add_argument("--clips-dir", required=True, help="dir with {name}_{role}.mp4 clips")
     p.add_argument("--out", required=True, help="dataset root (must not exist yet, or pass --overwrite)")
     p.add_argument("--dataset-version", choices=["v21", "v30"], default="v30")
-    p.add_argument("--state-source", choices=sorted(SOURCES), default="none")
+    p.add_argument("--state-source", choices=sorted(SOURCES), default="none",
+                   help="none = video-only; zeros = flagged placeholder; sim_gt = sim ground-truth trajectory; "
+                        "aruco = gripper pose reconstructed from the head clips")
+    p.add_argument("--sim-gt", help="<session>/sim_gt of a sim/render_capture.py session (sim_gt source, aruco scoring "
+                                    "and its head-camera motion)")
+    p.add_argument("--camera", help="head intrinsics yaml for --state-source aruco (sim: <session>/sim_gt/cameras.yaml)")
+    p.add_argument("--markers", help="marker layout yaml (default configs/gripper_markers.yaml)")
+    p.add_argument("--cam-motion", default="sim_gt", help="head-camera motion for aruco: sim_gt (SLAM not wired yet)")
     p.add_argument("--fps", default="auto",
                    help="dataset + video fps; auto = the head clips' own rate (default; v30 needs an integer)")
     p.add_argument("--image-size", default="1280x720", help="WxH of the encoded camera streams")
@@ -106,7 +113,8 @@ def main(argv=None) -> int:
         import shutil
         shutil.rmtree(out_root)
     size = parse_size(args.image_size)
-    source = get_source(args.state_source)
+    source = get_source(args.state_source, cut_sheet=cut_sheet, sim_gt=args.sim_gt, camera=args.camera,
+                        markers=args.markers, cam_motion=args.cam_motion)
     session_id = args.session_id or cut_sheet.parent.name
 
     episodes = load_episodes(cut_sheet, clips_dir)
@@ -153,10 +161,14 @@ def main(argv=None) -> int:
                       + ", ".join(f"{r} {d:.3f}s" for r, d in durs.items()))
             state, action = source.compute(ep, n, args.fps)
             counts = writer.add_episode(task_label=ep.task_label or "", task_index=task_idx[ep.task_label or ""],
-                                        state=state, action=action, clips=ep.clips, n_frames=n)
+                                        state=state, action=action, clips=ep.clips, n_frames=n,
+                                        extra=getattr(source, "extra", None) or None)
             short = {r: c for r, c in counts.items() if c != n}
+            ep_info = dict(getattr(source, "episode_info", {}) or {})
+            if ep_info:
+                print("  [S] " + "  ".join(f"{k}={v}" for k, v in ep_info.items()))
             summaries.append({"episode_index": episode_index, "name": ep.name, "length": n,
-                              "frames": counts, "short": short, "task": ep.task_label or ""})
+                              "frames": counts, "short": short, "task": ep.task_label or "", "state": ep_info})
         except Exception as exc:  # noqa: BLE001 - isolate per-episode failures
             print(f"ERROR {ep.name}: {exc}", file=sys.stderr)
             traceback.print_exc()
