@@ -27,36 +27,30 @@ Output: `sim/episodes/<name>/preview/gripper_preview.mp4`, `metrics.json` and `t
 `--cam-source`: `gt` = perfect SLAM (isolates the marker pipeline), `table` = per-frame table-tag pose, `none` = camera frame.
 
 ## Results (2026-10-28, sim, f = 1050 px, gripper and markers as in the CAD)
-The default head camera is the **overhead-right view** (`--head 0.18,0.10,0.74 --look 0.0,0.10,0.08`): about 74 cm
-above the table, 18 cm right of the work area, looking down. It was picked from a sweep of 25 placements around the
-workspace for jaw-tag visibility. The original view (`--head 0.0,-0.42,0.58 --look 0.0,0.12,0.0`), from behind and
-above the user's hand, is kept for comparison.
+Head camera: the egocentric view behind and above the user's hands (`--head 0.0,-0.42,0.58 --look 0.0,0.12,0.0`).
 
-| Episode | Head view | TCP median / p90 / max [mm] | rot median [deg] | width measured | width err median / max [mm] | single-tag frames |
-|---|---|---|---|---|---|---|
-| pick_place | original | 1.8 / 6.4 / 16.2 | 0.31 | 21 % | 0.00 / 0.44 | 25 % |
-| pick_place | **overhead-right** | **0.41 / 0.74 / 1.8** | 0.12 | **95 %** | 0.03 / 1.1 | 0 % |
-| roll | overhead-right | 0.18 / 0.39 / 1.4 | 0.12 | 100 % | 0.06 / 0.43 | 0 % |
+| Episode | TCP median / p90 / max [mm] | rot median [deg] | jaw width from the head camera | width err median / max [mm] | single-tag frames |
+|---|---|---|---|---|---|
+| pick_place | 1.8 / 6.4 / 16.2 | 0.31 | 21 % of frames | 0.00 / 0.44 | 25 % |
+| roll | 0.57 / 0.94 / 1.8 | 0.07 | 73 % | 0.22 / 0.91 | 1 % |
 
-Jaw-tag visibility from the placement sweep (pick_place, every 6th frame, real detector):
-
-| Placement | either jaw tag | both jaw tags | ≥ 2 body tags |
-|---|---|---|---|
-| original (behind the hand) | 18 % | 3 % | 70 % |
-| overhead-right (default) | 97 % | 61 % | 100 % |
-| facing the user (opposite side of the table) | 100 % | 100 % | 100 % (but no longer a head camera) |
+Jaw width is meant to come from the **gripper (wrist) camera**, as in UMI: it is rigid to the gripper, so each jaw
+tag only slides along its rail in that view. `render_capture.py` renders that camera at the GoPro lens, pitched
+down 15° (`--wrist-tilt`) so both jaw tags stay in its 120° pinhole frame over the full travel; at 0° they fall just
+outside the bottom edge (a real GoPro's ~155° fisheye covers them without the tilt). From 5° down, both tags are
+detected at every travel, 95–116 px across. `--state-source aruco` takes the gripper value from that feed and uses
+the head camera's jaw sightings only as a fallback.
 
 Findings:
-- The holder-top jaw tags are visible from a head camera; *where* the head is matters. From behind the hand, the
-  GoPro and the cube block them at level poses and they face away in top-down grasps. From above and to the right of
-  the work they are seen in almost every frame.
-- Single-tag frames (cube rear only) caused the large TCP errors in the original view: the TCP is about 290 mm from
-  the cube, so about 1° at the tags becomes about 5 mm at the fingertips. The overhead-right view has none.
-- Coplanar body tags (only the two top-cover tags in view) have a two-fold planar ambiguity; `estimate_body` now
-  scores both IPPE solutions as well as SQPNP.
+- From the egocentric head view the GoPro and the cube block the holder-top jaw tags at level poses, and they face
+  away in top-down grasps; the head sees them in 21–73 % of frames. The wrist camera sees them in every frame.
+- Single-tag frames (cube rear only, 25 % of pick_place) cause the large TCP errors: the TCP is about 290 mm from
+  the cube, so about 1° at the tags becomes about 5 mm at the fingertips.
+- Coplanar body tags (only the two top-cover tags in view) have a two-fold planar ambiguity; `estimate_body` also
+  scores both IPPE solutions.
 - Earlier numbers in this file (45° jaw flags, blur + table-tag camera) were measured before two renderer fixes
   (sheared jaw-tag textures; sticker normals pointing into the face, so stickers got only ambient light). They are
-  removed until re-run. The single-tag table-tag camera pose was unusable then; that needs re-checking too.
+  removed until re-run; the claim that holder-top jaw tags are never visible came from those bugs.
 
 ## Not modelled / caveats
 - Lens distortion (renders are ideal pinhole), rolling shutter, auto-exposure, specular glare, sticker wrinkles.

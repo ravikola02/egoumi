@@ -14,7 +14,7 @@ HaWoR hand pose with the gripper pose from the markers and keeps HaWoR's head-ca
 
 [![Sim preview: estimated gripper over the head-camera frame, world view vs ground truth, error timeline](assets/preview_pick_place.gif)](assets/preview_pick_place.mp4)
 
-*Simulated pick-and-place from the overhead-right head view ([mp4](assets/preview_pick_place.mp4),
+*Simulated pick-and-place from the egocentric head camera ([mp4](assets/preview_pick_place.mp4),
 [wrist-roll episode](assets/preview_roll.mp4)). Left: head-camera frame with the estimated gripper mesh (purple), detected tags and the TCP axes. Right: world view,
 estimate vs ground-truth ghost (green), TCP trails and the head camera. Bottom: TCP error, jaw width estimate vs
 ground truth, and the number of body tags used.*
@@ -27,7 +27,7 @@ ground truth, and the number of body tags used.*
 | `umi_pipe/` + `scripts/gripper_pose.py`: subpixel ArUco → multi-tag PnP (SQPNP + LM, outlier rejection, single-tag disambiguation) → joint body + jaw refinement → jaw width → world TCP pose | working in sim |
 | `scripts/preview_gripper.py`: the preview above, the gripper counterpart of HaWoR's MANO cam/world visualisation; also runs on real sequences without ground truth | working |
 | `collection/`: 3-camera capture (head + 2 gripper/wrist cams) → audio sync → browser tagger → frame-exact clips → LeRobot v3.0 / v2.1, the h2r_collection flow without HaWoR ([details](collection/README.md)) | working: tested on the h2r_collection Sample session and on a rendered capture |
-| Trajectories in the dataset: `--state-source aruco` reconstructs the gripper TCP from the head clips (14-d h2r_collection layout); with sim ground truth the same dataset also gets `observation.state_gt` / `action_gt` | working in sim, gripper value included (jaw tags seen on 95–100 % of frames); predicted columns carry the h2r causal EMA (0.164 position / 0.3 gripper); head-camera motion still comes from the sim (SLAM not wired) |
+| Trajectories in the dataset: `--state-source aruco` reconstructs the gripper TCP from the head clips (14-d h2r_collection layout); with sim ground truth the same dataset also gets `observation.state_gt` / `action_gt` | working in sim: gripper value from the gripper (wrist) camera on 100 % of frames; causal EMA α 0.18 on predicted position (chosen by the h2r delta-noise criterion, `sim/ema_sweep.py`); head-camera motion still comes from the sim (SLAM not wired) |
 | `sim/render_capture.py`: rendered raw capture (head camera, gripper GoPro, blank second wrist feed, skewed clocks, clap soundtrack) + `sim/check_capture_sync.py` (sync and cut accuracy against ground truth) | working |
 | HaWoR SLAM for head-camera motion, camera calibration, real captures | planned |
 
@@ -45,10 +45,11 @@ clocks; the audio sync recovered the offsets exactly and every cut is frame-exac
 
 ![observation.state (ArUco pipeline) vs observation.state_gt (ground truth) from that dataset](assets/dataset_trajectories.png)
 
-*The same dataset's trajectory columns: `observation.state` reconstructed by the ArUco pipeline, with the h2r
-causal EMA (purple), against the raw `observation.state_gt` (green). Right gripper TCP in each episode's first
-head-camera frame; the head-camera motion here comes from the sim. Before the EMA the TCP error is 0.3–0.5 mm
-median; the EMA's 5-frame (170 ms) lag adds about 18 mm median at these hand speeds (`--ema-pos 1` turns it off).*
+*The same dataset's trajectory columns: `observation.state` reconstructed by the ArUco pipeline (purple) against
+the raw `observation.state_gt` (green). Right gripper TCP in each episode's first head-camera frame; the head-camera
+motion here comes from the sim. The gripper value comes from the wrist camera (within about 1 mm of jaw width). The
+position carries a causal EMA (α 0.18, 152 ms lag), which brings the one-step delta noise to the G1 robot's level;
+the lag is what separates the purple and green position curves (`--ema-pos 1` turns it off).*
 
 ## Quick start (simulation)
 Runs in a Python env with `pyrender`, `trimesh`, `opencv-python` (≥ 4.7, ArUco), `scipy`, `pyyaml` and
@@ -64,21 +65,22 @@ Set `PY=/path/to/python` if your interpreter is not the HaWoR conda env. `sim/as
 `sim/export_meshes.py` regenerates it from the STEP file (needs CadQuery).
 
 ## Sim results
-Head camera **overhead-right** (74 cm above the table, 18 cm right of the work, looking down; the sim default, chosen
-from a sweep of 25 placements) vs the original view from behind the user's hand. Gripper and markers are as in the CAD.
+Egocentric head camera (behind and above the user's hands); gripper and markers as in the CAD.
 
-| Episode | Head view | TCP error median / p90 / max | Jaw width measured | Width error median / max |
-|---|---|---|---|---|
-| pick-and-place | original | 1.8 / 6.4 / 16.2 mm | 21 % of frames | 0.00 / 0.44 mm |
-| pick-and-place | **overhead-right** | **0.41 / 0.74 / 1.8 mm** | **95 %** | 0.03 / 1.1 mm |
-| wrist roll | overhead-right | 0.18 / 0.39 / 1.4 mm | 100 % | 0.06 / 0.43 mm |
+| Episode | TCP error median / p90 / max | Jaw width seen by the head camera |
+|---|---|---|
+| pick-and-place | 1.8 / 6.4 / 16.2 mm | 21 % of frames (width error median 0.00, max 0.44 mm) |
+| wrist roll | 0.57 / 0.94 / 1.8 mm | 73 % (median 0.22, max 0.91 mm) |
+
+Jaw width comes from the **gripper (wrist) camera**, as in UMI. In the render it sits at the GoPro lens, pitched
+down 15° so both jaw tags stay in its pinhole frame over the full travel; it sees both tags at every travel.
 
 What the sim showed so far (details in [sim/README.md](sim/README.md)):
-- The holder-top jaw tags work from a head camera when the head is above and to the side of the work. From behind
-  the hand, the GoPro and the cube block them. An earlier claim here, that they were never visible, came from two
-  renderer bugs (sheared jaw-tag textures; stickers lit only by ambient light), both fixed.
-- Frames where only one tag is visible cause most of the error: the TCP is about 29 cm from the cube tags. The
-  overhead-right view has none.
+- From the head camera the GoPro and the cube often block the holder-top jaw tags; the wrist camera always sees
+  them. An earlier claim here, that they were never visible, came from two renderer bugs (sheared jaw-tag
+  textures; stickers lit only by ambient light), both fixed.
+- Frames where only one body tag is visible cause most of the head-camera pose error: the TCP is about 29 cm from
+  the cube tags.
 - Camera motion has to come from SLAM; a static table tag can give scale and the world frame.
 
 Not modelled yet: lens distortion, rolling shutter, glare, real SLAM drift. The TCP point is an estimate from the CAD.

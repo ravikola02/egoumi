@@ -35,8 +35,16 @@ from render_episode import PRESETS, PICK, PLACE, OBJ, smooth_noise   # noqa: E40
 FFMPEG = "/usr/bin/ffmpeg" if os.path.isfile("/usr/bin/ffmpeg") else "ffmpeg"
 AUDIO_SR = 48000
 # GoPro dummy lens: front face of the lens housing at y = 14.5 mm, centred x 0, z ~83.4 mm (camera_dummy.stl).
-# Camera sits 1.5 mm in front of it looking along +Y (fingers); image right = body +X, image down = body -Z.
-T_BODY_WRISTCAM = make_T(np.array([[1.0, 0, 0], [0, 0, 1], [0, -1, 0]]), [0.0, 0.016, 0.0834])
+# Camera sits 1.5 mm in front of it looking along +Y (fingers); image right = body +X, image down = body -Z,
+# pitched down by --wrist-tilt so both jaw tags stay in the (pinhole, 120 deg) frame over the full travel. At 0 deg
+# they fall just outside the bottom edge; a real GoPro's ~155 deg fisheye covers them without the tilt.
+WRISTCAM_LENS = [0.0, 0.016, 0.0834]
+
+
+def wristcam_mount(tilt_deg):
+    """T_body_cam of the gripper camera: looking along body +Y, pitched down (toward body -Z) by tilt_deg."""
+    R0 = np.array([[1.0, 0, 0], [0, 0, 1], [0, -1, 0]])
+    return make_T(R0 @ R.from_euler("x", -tilt_deg, degrees=True).as_matrix(), WRISTCAM_LENS)
 
 
 def place_back_keys():
@@ -170,13 +178,14 @@ def main():
     ap.add_argument("--size", default="1920x1080")
     ap.add_argument("--head-f", type=float, default=1050.0, help="head focal [px]")
     ap.add_argument("--wrist-hfov", type=float, default=120.0, help="wrist camera horizontal FOV [deg] (pinhole)")
+    ap.add_argument("--wrist-tilt", type=float, default=15.0,
+                    help="wrist camera pitch down [deg]; 15 keeps both jaw tags in view over the full travel")
     ap.add_argument("--supersample", type=int, default=2)
     ap.add_argument("--noise", type=float, default=2.0)
     ap.add_argument("--max-seconds", type=float, default=0, help="truncate the head recording (quick test)")
-    ap.add_argument("--head", default="0.18,0.10,0.74",
-                    help="nominal head-camera position [m]; default = overhead-right view for jaw-tag visibility "
-                         "(original view: 0.0,-0.42,0.58)")
-    ap.add_argument("--look", default="0.0,0.10,0.08", help="nominal look-at point [m] (original: 0.0,0.12,0.0)")
+    ap.add_argument("--head", default="0.0,-0.42,0.58",
+                    help="nominal head-camera position [m] (egocentric: behind and above the hands)")
+    ap.add_argument("--look", default="0.0,0.12,0.0", help="nominal look-at point [m]")
     ap.add_argument("--seed", type=int, default=0)
     a = ap.parse_args()
 
@@ -188,6 +197,7 @@ def main():
     starts = [float(v) for v in a.starts.split(",")]; tails = [float(v) for v in a.tails.split(",")]
     skew = [float(v) for v in a.clock_skew.split(",")]
     model = GripperModel()
+    T_BODY_WRISTCAM = wristcam_mount(a.wrist_tilt)
 
     names = a.episodes.split(",")
     keys, bounds, head_dur = build_timeline(names, a.rest, a.lead)
@@ -296,7 +306,8 @@ def main():
     json.dump(gt, open(os.path.join(gt_dir, "gt.json"), "w"), indent=1)
     cams = {"head": {"width": W, "height": H, "fx": a.head_f, "fy": a.head_f, "cx": (W - 1) / 2, "cy": (H - 1) / 2},
             "wrist_right": {"width": W, "height": H, "fx": float(fw), "fy": float(fw), "cx": (W - 1) / 2,
-                            "cy": (H - 1) / 2, "T_body_cam": T_BODY_WRISTCAM.tolist(), "hfov_deg": a.wrist_hfov}}
+                            "cy": (H - 1) / 2, "T_body_cam": T_BODY_WRISTCAM.tolist(), "hfov_deg": a.wrist_hfov,
+                            "tilt_deg": a.wrist_tilt}}
     yaml.safe_dump(cams, open(os.path.join(gt_dir, "cameras.yaml"), "w"), sort_keys=False)
     print(f"session written to {a.out}; true offsets vs head {gt['true_offset_vs_head_s']}")
 

@@ -76,11 +76,9 @@ def main():
     ap.add_argument("--preset", default="pick_place", choices=sorted(PRESETS))
     ap.add_argument("--camera", default=os.path.join(ROOT, "configs", "camera_sim.yaml"))
     ap.add_argument("--markers", default=os.path.join(ROOT, "configs", "gripper_markers.yaml"))
-    ap.add_argument("--head", default="0.18,0.10,0.74",
-                    help="nominal head-camera position in the world frame [m]; default = overhead-right view chosen for "
-                         "jaw-tag visibility (97 %% of pick_place frames). The original view was 0.0,-0.42,0.58")
-    ap.add_argument("--look", default="0.0,0.10,0.08",
-                    help="nominal look-at point [m] (original view: 0.0,0.12,0.0)")
+    ap.add_argument("--head", default="0.0,-0.42,0.58",
+                    help="nominal head-camera position in the world frame [m] (egocentric: behind and above the hands)")
+    ap.add_argument("--look", default="0.0,0.12,0.0", help="nominal look-at point [m]")
     ap.add_argument("--head-bob", type=float, default=0.02, help="head translation wobble amplitude [m]")
     ap.add_argument("--head-turn", type=float, default=4.0, help="head rotation wobble amplitude [deg]")
     ap.add_argument("--tremor", type=float, default=0.002, help="hand position tremor amplitude [m]")

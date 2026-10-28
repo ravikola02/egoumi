@@ -195,7 +195,7 @@ class ArucoSource(_GripperBase):
     name = "aruco"
 
     def __init__(self, cut_sheet=None, sim_gt=None, camera=None, markers=None, cam_motion="sim_gt",
-                 max_gap=5, ema_pos=0.164, ema_grip=0.3, **kw):
+                 max_gap=5, ema_pos=0.18, ema_grip=1.0, **kw):
         super().__init__(cut_sheet=cut_sheet, sim_gt=sim_gt)
         _repo_imports()
         import yaml
@@ -203,15 +203,25 @@ class ArucoSource(_GripperBase):
         from umi_pipe import pose as P
         if camera is None:
             raise ValueError("state source 'aruco' needs --camera (head intrinsics yaml)")
-        cam = yaml.safe_load(open(camera))
-        cam = cam.get("head", cam)
+        cams = yaml.safe_load(open(camera))
+        cam = cams.get("head", cams)
         self.K = np.array([[cam["fx"], 0, cam["cx"]], [0, cam["fy"], cam["cy"]], [0, 0, 1.0]])
         self.dist = np.asarray(cam.get("dist", [0] * 5), float)
+        # gripper (wrist) camera: if its mount on the gripper is known, jaw width comes from it (UMI-style: the
+        # camera is rigid to the body, so each jaw tag only slides along its rail in this view)
+        wr = cams.get("wrist_right") if isinstance(cams, dict) else None
+        self.wrist = None
+        if wr and "T_body_cam" in wr:
+            from umi_pipe.geometry import inv
+            self.wrist = {"K": np.array([[wr["fx"], 0, wr["cx"]], [0, wr["fy"], wr["cy"]], [0, 0, 1.0]]),
+                          "dist": np.asarray(wr.get("dist", [0] * 5), float),
+                          "T_cam_body": inv(np.asarray(wr["T_body_cam"], float))}
         self.model = GripperModel(markers or MARKER_CFG)
         self.P = P
         self.cam_motion = cam_motion
         self.max_gap = max_gap
-        # same smoothing as the h2r datasets: kitting_ema164 (position, 0.164) + h2r_collection's gripper EMA (0.3)
+        # h2r criterion (sim/ema_sweep.py): least smoothing whose one-step delta noise reaches the G1 FK level ->
+        # position 0.18 (h2r kitting used 0.164 for HaWoR); the wrist-camera gripper is clean, so no gripper EMA
         self.ema_pos = 1.0 if ema_pos is None else float(ema_pos)
         self.ema_grip = 1.0 if ema_grip is None else float(ema_grip)
 
@@ -240,6 +250,20 @@ class ArucoSource(_GripperBase):
             if tr:
                 travel[k] = np.mean([v[0] for v in tr.values()])
         cap.release()
+        travel_head = travel.copy()
+        travel_wrist = np.full(n, np.nan)
+        if self.wrist is not None and "wrist_right" in episode.clips:
+            cap = cv2.VideoCapture(str(episode.clips["wrist_right"]))
+            for k in range(n):
+                ok, img = cap.read()
+                if not ok:
+                    break
+                tr = self.P.estimate_travel(self.P.detect(det, img), self.model, self.wrist["K"], self.wrist["dist"],
+                                            self.wrist["T_cam_body"])
+                if tr:
+                    travel_wrist[k] = np.mean([v[0] for v in tr.values()])
+            cap.release()
+            travel = np.where(np.isfinite(travel_wrist), travel_wrist, travel_head)
 
         # pose in the episode frame, gaps <= max_gap interpolated, longer gaps held (and reported)
         T_c0_tcp = inv_batch(T_wc[:1])[0] @ T_wc @ T_cam_body @ self.model.T_body_tcp
@@ -267,7 +291,10 @@ class ArucoSource(_GripperBase):
                              "pose_interpolated_pct": round(float((src == 2).mean() * 100), 1),
                              "pose_held_pct": round(held / n * 100, 1),
                              "single_tag_pct": round(float(((n_tags == 1) & (src == 1)).mean() * 100), 1),
-                             "gripper_measured_pct": round(float(width_ok.mean() * 100), 1)}
+                             "gripper_measured_pct": round(float(width_ok.mean() * 100), 1),
+                             "gripper_from_wrist_pct": round(float(np.isfinite(travel_wrist).mean() * 100), 1),
+                             "gripper_from_head_only_pct": round(float((np.isfinite(travel_head) &
+                                                                        ~np.isfinite(travel_wrist)).mean() * 100), 1)}
         if self._gt is not None:   # score against the sim ground truth in the same frame, and ship it as a tag
             G = inv_batch(T_wc[:1])[0] @ self._gt["T_world_tcp"][idx]
             gt_state = _pose_rows(G, np.clip(1.0 - self._gt["width"][idx] / self.model.width_open, 0.0, 1.0))
@@ -309,7 +336,8 @@ class ArucoSource(_GripperBase):
                                 "axis; intrinsic-XYZ rpy. Head-camera motion: " +
                                 ("SIM GROUND TRUTH standing in for SLAM (not wired yet)." if self.cam_motion == "sim_gt"
                                  else self.cam_motion) +
-                                " right.gripper = 1 - width/width_open from the jaw tags, interpolated across frames without a "
+                                " right.gripper = 1 - width/width_open from the jaw tags, seen by the gripper (wrist) camera "
+                                "when its mount is known (head camera as fallback), interpolated across frames without a "
                                 "jaw tag (meta/egoumi_episodes.json gripper_measured_pct), 0 if never seen in an episode. Left arm absent: left.* = 0."}
 
 
