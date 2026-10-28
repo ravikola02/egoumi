@@ -26,25 +26,37 @@ Output: `sim/episodes/<name>/preview/gripper_preview.mp4`, `metrics.json` and `t
 
 `--cam-source`: `gt` = perfect SLAM (isolates the marker pipeline), `table` = per-frame table-tag pose, `none` = camera frame.
 
-## Results so far (2026-10-28, sim, f = 1050 px, head about 0.6 m from the gripper)
-| Episode | TCP median / p90 / max [mm] | rot median [deg] | width measured | width err, measured [mm] |
-|---|---|---|---|---|
-| pick_place, holder-top jaw tags (CAD plan) | 1.7 / 5.8 / 15.8 | 0.31 | **0 %** | – |
-| pick_place, 45° jaw flags (candidate) | 1.4 / 5.8 / 15.8 | 0.22 | 55 % | median 0.08, max 13.4 (0.05 / 2.6 with ≥ 2 body tags) |
-| roll, jaw flags | 0.56 / 0.97 / 2.3 | 0.09 | 56 % | median 0.17, max 1.8 |
-| pick_place + blur 5, cam from table tag | 7.2 / 52 / 90 | 1.56 | 60 % | – |
+## Results (2026-10-28, sim, f = 1050 px, gripper and markers as in the CAD)
+The default head camera is the **overhead-right view** (`--head 0.18,0.10,0.74 --look 0.0,0.10,0.08`): about 74 cm
+above the table, 18 cm right of the work area, looking down. It was picked from a sweep of 25 placements around the
+workspace for jaw-tag visibility. The original view (`--head 0.0,-0.42,0.58 --look 0.0,0.12,0.0`), from behind and
+above the user's hand, is kept for comparison.
+
+| Episode | Head view | TCP median / p90 / max [mm] | rot median [deg] | width measured | width err median / max [mm] | single-tag frames |
+|---|---|---|---|---|---|---|
+| pick_place | original | 1.8 / 6.4 / 16.2 | 0.31 | 21 % | 0.00 / 0.44 | 25 % |
+| pick_place | **overhead-right** | **0.41 / 0.74 / 1.8** | 0.12 | **95 %** | 0.03 / 1.1 | 0 % |
+| roll | overhead-right | 0.18 / 0.39 / 1.4 | 0.12 | 100 % | 0.06 / 0.43 | 0 % |
+
+Jaw-tag visibility from the placement sweep (pick_place, every 6th frame, real detector):
+
+| Placement | either jaw tag | both jaw tags | ≥ 2 body tags |
+|---|---|---|---|
+| original (behind the hand) | 18 % | 3 % | 70 % |
+| overhead-right (default) | 97 % | 61 % | 100 % |
+| facing the user (opposite side of the table) | 100 % | 100 % | 100 % (but no longer a head camera) |
 
 Findings:
-- Holder-top jaw tags (plan) are never detected from the head camera: they sit behind the GoPro and cube at level
-  poses and are edge-on (about 90°) in top-down grasps. Jaw width needs tags that face the user. The 45° flags in
-  `gripper_markers_jawflags.yaml` are a sim-only candidate, not in the CAD.
-- Single-tag frames (cube rear only, 21 % of pick_place) give the large TCP errors: the TCP is about 290 mm from
-  the cube, so about 1° at the tags becomes about 5 mm at the fingertips. When the body pose rests on one tag the
-  jaw fit absorbs its error (7–13 mm width error at under 1 px reprojection), so `poses.npz` marks those frames
-  `width_weak`.
-- A single 150 mm table tag is not a usable camera pose (IPPE flips: 12 mm median, 153 mm max). Keep SLAM for
-  T_world_cam, as the plan does; use the tag for scale and the world frame only, or use a multi-tag board.
-- Motion blur (5 sub-frames, 1/120 s) costs little in the camera frame: body pose 1.4 mm median, 5.7 mm p90.
+- The holder-top jaw tags are visible from a head camera; *where* the head is matters. From behind the hand, the
+  GoPro and the cube block them at level poses and they face away in top-down grasps. From above and to the right of
+  the work they are seen in almost every frame.
+- Single-tag frames (cube rear only) caused the large TCP errors in the original view: the TCP is about 290 mm from
+  the cube, so about 1° at the tags becomes about 5 mm at the fingertips. The overhead-right view has none.
+- Coplanar body tags (only the two top-cover tags in view) have a two-fold planar ambiguity; `estimate_body` now
+  scores both IPPE solutions as well as SQPNP.
+- Earlier numbers in this file (45° jaw flags, blur + table-tag camera) were measured before two renderer fixes
+  (sheared jaw-tag textures; sticker normals pointing into the face, so stickers got only ambient light). They are
+  removed until re-run. The single-tag table-tag camera pose was unusable then; that needs re-checking too.
 
 ## Not modelled / caveats
 - Lens distortion (renders are ideal pinhole), rolling shutter, auto-exposure, specular glare, sticker wrinkles.

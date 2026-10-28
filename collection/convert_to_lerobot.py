@@ -98,6 +98,10 @@ def main(argv=None) -> int:
     p.add_argument("--camera", help="head intrinsics yaml for --state-source aruco (sim: <session>/sim_gt/cameras.yaml)")
     p.add_argument("--markers", help="marker layout yaml (default configs/gripper_markers.yaml)")
     p.add_argument("--cam-motion", default="sim_gt", help="head-camera motion for aruco: sim_gt (SLAM not wired yet)")
+    p.add_argument("--ema-pos", type=float, default=0.164,
+                   help="aruco: causal EMA alpha on the predicted TCP position (h2r kitting_ema164; 1.0 = off)")
+    p.add_argument("--ema-grip", type=float, default=0.3,
+                   help="aruco: causal EMA alpha on the predicted gripper value (h2r_collection export; 1.0 = off)")
     p.add_argument("--fps", default="auto",
                    help="dataset + video fps; auto = the head clips' own rate (default; v30 needs an integer)")
     p.add_argument("--image-size", default="1280x720", help="WxH of the encoded camera streams")
@@ -114,7 +118,8 @@ def main(argv=None) -> int:
         shutil.rmtree(out_root)
     size = parse_size(args.image_size)
     source = get_source(args.state_source, cut_sheet=cut_sheet, sim_gt=args.sim_gt, camera=args.camera,
-                        markers=args.markers, cam_motion=args.cam_motion)
+                        markers=args.markers, cam_motion=args.cam_motion, ema_pos=args.ema_pos,
+                        ema_grip=args.ema_grip)
     session_id = args.session_id or cut_sheet.parent.name
 
     episodes = load_episodes(cut_sheet, clips_dir)

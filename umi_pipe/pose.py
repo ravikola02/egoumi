@@ -52,6 +52,34 @@ def _planar_pose(obj, img, K, dist, T_prev=None):
     return cands[k], not ambiguous
 
 
+def _coplanar(obj, tol=1e-4):
+    """True when the 3-D points lie in one plane (smallest principal extent below tol [m])."""
+    c = obj - obj.mean(axis=0)
+    return np.linalg.svd(c, compute_uv=False)[-1] / np.sqrt(len(obj)) < tol
+
+
+def _best_planar(obj, img, K, dist, seeds, T_prev=None):
+    """Pick among `seeds` + both LM-refined IPPE solutions by reprojection; near-ties go to the one closest to T_prev."""
+    cands = list(seeds)
+    n, rvs, tvs, _ = cv2.solvePnPGeneric(obj, img, K, dist, flags=cv2.SOLVEPNP_IPPE)
+    for i in range(n):
+        rv, tv = cv2.solvePnPRefineLM(obj, img, K, dist, rvs[i].copy(), tvs[i].copy())
+        cands.append(rvec_tvec_to_T(rv, tv))
+    cands = [T for T in cands if T[2, 3] > 0]
+    errs = np.array([_rms(_reproj(K, dist, T, obj), img) for T in cands])
+    order = np.argsort(errs)
+    best = cands[order[0]]
+    # a distinct runner-up (> 5 deg away) with similar error means the frame alone cannot decide
+    rivals = [k for k in order[1:] if pose_error(cands[k], best)[1] > 5.0 and errs[k] < 1.5 * errs[order[0]] + 0.3]
+    if not rivals:
+        return best, True
+    if T_prev is not None:
+        pool = [order[0]] + rivals
+        k = min(pool, key=lambda j: pose_error(cands[j], T_prev)[1])
+        return cands[k], True
+    return best, False
+
+
 def estimate_body(dets, model, K, dist, T_prev=None, outlier_px=3.0, min_tags=1):
     """Rigid multi-tag PnP over the body tags. Returns dict or None.
     keys: T_cam_body, rms, ids (used), rejected, single (only one tag), confident (single-tag ambiguity resolved)."""
@@ -69,6 +97,10 @@ def estimate_body(dets, model, K, dist, T_prev=None, outlier_px=3.0, min_tags=1)
                 return None
             rv, tv = cv2.solvePnPRefineLM(obj, img, K, dist, rv, tv)
             T, confident = rvec_tvec_to_T(rv, tv), True
+            if _coplanar(obj):
+                # All tags in one plane (e.g. only the two top-cover tags): planar PnP has a two-fold ambiguity and
+                # SQPNP can settle on the mirrored pose. Also try both IPPE solutions and keep the best reprojection.
+                T, confident = _best_planar(obj, img, K, dist, [T], T_prev)
         proj = _reproj(K, dist, T, obj)
         per_tag = [_rms(proj[4 * k:4 * k + 4], img[4 * k:4 * k + 4]) for k in range(len(ids))]
         worst = int(np.argmax(per_tag))

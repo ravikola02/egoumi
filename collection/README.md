@@ -1,8 +1,9 @@
 # collection/: 3-camera capture → LeRobot dataset
 
 > 🚧 Work in progress. Cameras, sync, cutting and the dataset writers work (tested on the
-> [h2r_collection](https://github.com/ravikola02/h2r_collection) Sample session). **End-effector pose
-> and gripper values are not reconstructed yet**, so datasets are video-only (or carry a flagged zero placeholder).
+> [h2r_collection](https://github.com/ravikola02/h2r_collection) Sample session and a rendered capture). The gripper
+> trajectory (`--state-source aruco`) works **in sim only**: head-camera motion still comes from the sim, because
+> SLAM is not wired in yet. Without it, datasets are video-only (or carry a flagged zero placeholder).
 
 The same flow as h2r_collection's pipeline, with HaWoR removed:
 
@@ -47,7 +48,7 @@ Camera keys: `observation.images.{head,wrist_left,wrist_right}` (identical to h2
 |---|---|---|
 | `none` (default) | absent: video-only dataset | viewing, visual pre-training, checking cuts and sync |
 | `zeros` | 14-d zeros in the h2r_collection layout (`left/right.eef.{x,y,z,roll,pitch,yaw}`, `left/right.gripper`), `info.json → egoumi.state_placeholder: true` | smoke-testing training code only; **never train on it** |
-| `aruco` | right gripper TCP pose reconstructed from the **head clips** with the ArUco pipeline (`umi_pipe.pose`); `right.gripper` from the jaw tags (0 where unseen); left arm zero. Head-camera motion comes from `--cam-motion` (only `sim_gt` for now: SLAM is not wired). With `--sim-gt` the same dataset also gets **`observation.state_gt` / `action_gt`**, the ground truth in the same frame and layout | testing reconstruction against ground truth; real captures once SLAM is in |
+| `aruco` | right gripper TCP pose reconstructed from the **head clips** with the ArUco pipeline (`umi_pipe.pose`); `right.gripper` from the jaw tags, interpolated across frames without one; left arm zero. Causal EMA as in the h2r datasets: α 0.164 on position (`--ema-pos`), 0.3 on the gripper (`--ema-grip`), orientation unfiltered, 1.0 = off. Head-camera motion comes from `--cam-motion` (only `sim_gt` for now: SLAM is not wired). With `--sim-gt` the same dataset also gets **`observation.state_gt` / `action_gt`**, the ground truth in the same frame and layout | testing reconstruction against ground truth; real captures once SLAM is in |
 | `sim_gt` | the sim ground truth only (`sim/render_capture.py` sessions) | testing the trajectory plumbing |
 
 - Episode length = the shortest camera clip at `--fps` (floor), so every camera has exactly one frame per row.
@@ -94,11 +95,21 @@ h2r_collection's converter. `convert_to_lerobot.py`, `state_sources.py` and `run
   `creation_time` to whole seconds only, so metadata alone was off by 183 ms and 1,567 ms: the claps matter.
 - Every clip matches the raw recording frame-exactly at both ends (`sim/check_capture_sync.py`); the blank feed
   stays blank; 525 frames load in LeRobot 0.4.1 with both the PyAV and torchcodec backends.
-- Trajectory test (`run_pipeline.py --skip-tag --state-source aruco --sim-gt ... --camera ...`): one dataset with
-  both `observation.state` (predicted) and `observation.state_gt`. Pose found on 100 % of frames; TCP error median
-  1.6 / 0.5 / 2.2 mm, p90 5.5 / 1.2 / 7.5 mm, max 23.6 / 2.4 / 16.7 mm (pick-and-place / wrist roll / put back;
-  the large ones are single-tag frames). `state_gt` matches the independent `sim_gt` build exactly; `action` and
-  `action_gt` are the next state within every episode.
+- Trajectory test (`run_pipeline.py --skip-tag --state-source aruco --sim-gt ... --camera ...`, overhead-right head
+  view): one dataset with both `observation.state` (predicted) and `observation.state_gt` (raw ground truth). Pose on
+  100 % of frames, gripper measured on 95 / 100 / 95 % (pick-and-place / wrist roll / put back). Before the EMA:
+  TCP error median 0.45 / 0.27 / 0.48 mm, p90 under 1 mm, rare single-frame maxima up to 15 mm. With the default EMA
+  the filtered columns equal `ema(raw)` exactly, and the 5-frame lag dominates the error against raw ground truth:
+
+  | position α | lag | error vs raw GT, median / p90 | noise vs equally filtered GT, median / max |
+  |---|---|---|---|
+  | 1.0 (off) | 0 frames | 0.42 / 0.86 mm | 0.42 / 14.6 mm |
+  | 0.6 | 0.7 | 2.6 / 7.0 mm | 0.39 / 8.6 mm |
+  | 0.3 | 2.3 | 8.9 / 22 mm | 0.36 / 4.0 mm |
+  | **0.164 (default, h2r)** | 5.1 | 18 / 45 mm | 0.35 / 2.7 mm |
+
+  `state_gt` matches the independent `sim_gt` build exactly; `action` / `action_gt` are the next state within every
+  episode.
 - **Cutter fix** (`sync_videos.clip_camera`, marked `egoumi change`): for a camera whose start offset is not a whole
   number of frames, clip frame 0 used to duplicate frame 1 (one frame dropped at every cut). It now seeks on the
   camera's own frame grid and caps at `-frames:v` with passthrough timestamps. h2r_collection still has the old code.

@@ -22,15 +22,24 @@ def _mat(rgba, metallic=0.0, rough=0.8, alpha_blend=False):
                                               alphaMode="BLEND" if alpha_blend else "OPAQUE", doubleSided=True)
 
 
+def _unit(v):
+    return v / np.linalg.norm(v)
+
+
 def textured_quad(corners, img):
-    """corners: 4x3 TL, TR, BR, BL; img: HxWx3 uint8 with row 0 = top edge."""
+    """corners: 4x3 TL, TR, BR, BL; img: HxWx3 uint8 with row 0 = top edge.
+    Normal = (BL - TL) x (TR - TL) = the face's outward normal. (It used to be the reverse, so stickers got only
+    ambient light and rendered far darker than the plastic around them.)"""
     uv = np.array([[0, 1], [1, 1], [1, 0], [0, 0]], np.float32)     # pyrender: v=0 is the image's last row
-    tex = pyrender.Texture(source=img, source_channels="RGB",
+    # RGBA upload: tightly packed RGB rows that are not a multiple of 4 bytes (e.g. the 266 px jaw tags) are read
+    # with OpenGL's default 4-byte row alignment and come out sheared; 4 bytes/pixel is always aligned.
+    img = np.dstack([img, np.full(img.shape[:2], 255, np.uint8)])
+    tex = pyrender.Texture(source=img, source_channels="RGBA",
                            sampler=pyrender.Sampler(magFilter=9729, minFilter=9987))   # LINEAR, LINEAR_MIPMAP_LINEAR
     mat = pyrender.MetallicRoughnessMaterial(baseColorTexture=tex, metallicFactor=0.0, roughnessFactor=0.9,
                                              doubleSided=True)
     prim = pyrender.Primitive(positions=np.asarray(corners, np.float32), texcoord_0=uv,
-                              normals=np.tile(np.cross(corners[1] - corners[0], corners[3] - corners[0]), (4, 1)).astype(np.float32),
+                              normals=np.tile(_unit(np.cross(corners[3] - corners[0], corners[1] - corners[0])), (4, 1)).astype(np.float32),
                               indices=np.array([[0, 2, 1], [0, 3, 2]], np.uint32), material=mat)
     return pyrender.Mesh([prim])
 

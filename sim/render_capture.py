@@ -173,6 +173,10 @@ def main():
     ap.add_argument("--supersample", type=int, default=2)
     ap.add_argument("--noise", type=float, default=2.0)
     ap.add_argument("--max-seconds", type=float, default=0, help="truncate the head recording (quick test)")
+    ap.add_argument("--head", default="0.18,0.10,0.74",
+                    help="nominal head-camera position [m]; default = overhead-right view for jaw-tag visibility "
+                         "(original view: 0.0,-0.42,0.58)")
+    ap.add_argument("--look", default="0.0,0.10,0.08", help="nominal look-at point [m] (original: 0.0,0.12,0.0)")
     ap.add_argument("--seed", type=int, default=0)
     a = ap.parse_args()
 
@@ -197,7 +201,8 @@ def main():
     span = max(starts[i] + durs[r] for i, r in enumerate(roles)) - clock0 + 1
 
     traj = Trajectory(keys, 0.002, rng, a.fps)
-    headcam = HeadCam([0.0, -0.42, 0.58], [0.0, 0.12, 0.0], 0.02, 4.0, rng, a.fps, span + 6)
+    headcam = HeadCam([float(v) for v in a.head.split(",")], [float(v) for v in a.look.split(",")],
+                      0.02, 4.0, rng, a.fps, span + 6)
     T0 = datetime(2026, 10, 28, 10, 0, 0, tzinfo=timezone.utc)
 
     # ---- audio: one absolute-clock soundtrack, each camera hears its own slice + its own mic noise ----

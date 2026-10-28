@@ -100,6 +100,19 @@ def fill_gaps(T: np.ndarray, src: np.ndarray, max_gap: int) -> None:
         i = j
 
 
+def ema(x: np.ndarray, alpha: float) -> np.ndarray:
+    """Causal EMA over axis 0, as h2r_collection's _ema: y[0] = x[0]; y[t] = alpha*x[t] + (1-alpha)*y[t-1].
+    alpha >= 1 is a no-op. Lag ~ (1 - alpha) / alpha frames (alpha 0.164 -> 5.1 frames = 170 ms at 30 fps)."""
+    x = np.asarray(x, np.float64)
+    if alpha >= 1.0 or len(x) < 2:
+        return x.copy()
+    y = np.empty_like(x)
+    y[0] = x[0]
+    for t in range(1, len(x)):
+        y[t] = alpha * x[t] + (1.0 - alpha) * y[t - 1]
+    return y
+
+
 def _repo_imports():
     import os, sys
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -182,7 +195,7 @@ class ArucoSource(_GripperBase):
     name = "aruco"
 
     def __init__(self, cut_sheet=None, sim_gt=None, camera=None, markers=None, cam_motion="sim_gt",
-                 max_gap=5, **kw):
+                 max_gap=5, ema_pos=0.164, ema_grip=0.3, **kw):
         super().__init__(cut_sheet=cut_sheet, sim_gt=sim_gt)
         _repo_imports()
         import yaml
@@ -198,6 +211,9 @@ class ArucoSource(_GripperBase):
         self.P = P
         self.cam_motion = cam_motion
         self.max_gap = max_gap
+        # same smoothing as the h2r datasets: kitting_ema164 (position, 0.164) + h2r_collection's gripper EMA (0.3)
+        self.ema_pos = 1.0 if ema_pos is None else float(ema_pos)
+        self.ema_grip = 1.0 if ema_grip is None else float(ema_grip)
 
     def compute(self, episode, n: int, fps: float):
         import cv2
@@ -237,8 +253,15 @@ class ArucoSource(_GripperBase):
                 if j is not None:
                     T_c0_tcp[k] = T_c0_tcp[j]; held += 1
         width_ok = np.isfinite(travel)
-        grip = np.where(width_ok, np.clip(1.0 - self.model.width_from_travel(np.nan_to_num(travel)) /
-                                          self.model.width_open, 0, 1), 0.0)
+        # frames without a jaw tag: interpolate the travel between measured frames (hold at the ends); 0 = open
+        # only when the jaw tags were never seen in the whole episode
+        if width_ok.any():
+            k_ok = np.where(width_ok)[0]
+            travel = np.interp(np.arange(n), k_ok, travel[k_ok])
+            grip = np.clip(1.0 - self.model.width_from_travel(np.clip(travel, 0, self.model.travel_max)) /
+                           self.model.width_open, 0, 1)
+        else:
+            grip = np.zeros(n)
         self.episode_info = {"head_frames": [int(idx[0]), int(idx[-1])],
                              "pose_measured_pct": round(float((src == 1).mean() * 100), 1),
                              "pose_interpolated_pct": round(float((src == 2).mean() * 100), 1),
@@ -255,6 +278,14 @@ class ArucoSource(_GripperBase):
                                       "vs_gt_rot_deg_median": round(float(np.median(e[:, 1])), 3),
                                       "vs_gt_pos_mm_max": round(float(e[:, 0].max() * 1000), 2)})
         state = _pose_rows(T_c0_tcp, grip)
+        # causal EMA on the PREDICTED position + gripper only (orientation wraps at +-pi; the GT tags stay raw)
+        state[:, 6:9] = ema(state[:, 6:9], self.ema_pos)
+        state[:, 13] = ema(state[:, 13], self.ema_grip)
+        if self._gt is not None:
+            e2 = np.linalg.norm(state[:, 6:9] - gt_state[:, 6:9], axis=1) * 1000
+            self.episode_info.update({"vs_gt_pos_mm_median_after_ema": round(float(np.median(e2)), 2),
+                                      "vs_gt_pos_mm_p90_after_ema": round(float(np.percentile(e2, 90)), 2),
+                                      "vs_gt_pos_mm_max_after_ema": round(float(e2.max()), 2)})
         return state, derive_action_from_state(state)
 
     @property
@@ -264,6 +295,11 @@ class ArucoSource(_GripperBase):
     def info(self) -> Dict:
         return {"state_source": self.name, "state_placeholder": False, "state_layout": H2R_14D_LAYOUT,
                 "camera_motion": self.cam_motion,
+                "ema": {"position_alpha": self.ema_pos, "gripper_alpha": self.ema_grip, "orientation": "not filtered",
+                        "applies_to": "observation.state / action only (ground-truth columns are raw)",
+                        "lag_frames_position": round((1 - self.ema_pos) / self.ema_pos, 2) if self.ema_pos < 1 else 0.0,
+                        "note": "causal, reset per episode; the filtered state lags the unshifted videos. Inference must "
+                                "apply the same filter to live observations, or train on a raw (alpha 1.0) export."},
                 "ground_truth_columns": ({"observation.state_gt": "sim ground truth of observation.state (same frame, "
                                                                   "layout and conventions)",
                                           "action_gt": "action_gt[t] = observation.state_gt[t+1]"}
@@ -273,8 +309,8 @@ class ArucoSource(_GripperBase):
                                 "axis; intrinsic-XYZ rpy. Head-camera motion: " +
                                 ("SIM GROUND TRUTH standing in for SLAM (not wired yet)." if self.cam_motion == "sim_gt"
                                  else self.cam_motion) +
-                                " right.gripper = 1 - width/width_open from the jaw tags, 0 where they were not seen "
-                                "(see meta/egoumi_episodes.json gripper_measured_pct). Left arm absent: left.* = 0."}
+                                " right.gripper = 1 - width/width_open from the jaw tags, interpolated across frames without a "
+                                "jaw tag (meta/egoumi_episodes.json gripper_measured_pct), 0 if never seen in an episode. Left arm absent: left.* = 0."}
 
 
 SOURCES = {s.name: s for s in (NoneSource, ZerosSource, SimGtSource, ArucoSource)}
