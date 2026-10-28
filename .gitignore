@@ -1,0 +1,11 @@
+# local envs / caches
+.venv-cad/
+__pycache__/
+*.pyc
+# generated sim episodes (regenerate with sim/run_sim_test.sh); README media lives in assets/
+sim/episodes/
+# superseded CAD outputs (regenerate with cad/build_v1.py / build_v2.py)
+cad/out_v1/
+cad/out_v2/
+# local assistant notes
+CLAUDE.md

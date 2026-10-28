@@ -1,0 +1,10 @@
+# Pinhole head camera for the sim (undistorted, principal point at the image centre, as hawor_slam assumes).
+# The real camera gets the same file from a ChArUco calibration (planned scripts/calibrate_camera.py).
+width: 1920
+height: 1080
+fx: 1050.0
+fy: 1050.0
+cx: 960.0
+cy: 540.0
+dist: [0.0, 0.0, 0.0, 0.0, 0.0]
+fps: 30

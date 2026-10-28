@@ -1,0 +1,34 @@
+# ArUco marker layout on the UMI pinch v3 gripper (body frame = CAD assembly frame, metres).
+# +Y finger direction, X jaw travel, +Z top-cover / camera up. Tag "center" is the centre of the
+# black square on the sticker surface; "normal" points out of the face; "up" is the direction of the
+# marker image's top edge. Corner order follows OpenCV: TL, TR, BR, BL seen from the front.
+# Positions come from the flat faces of cad/out_v3/umi_pinch_v3_assembly.step (see sim/export_meshes.py).
+# Unverified: sticker thickness (0.2 mm assumed) and the TCP point (estimate, see below).
+
+dictionary: DICT_4X4_50
+sticker_offset: 0.0002          # sticker raised off the face (render + PnP model)
+
+grippers:
+  - name: right
+    body_tags:                  # rigid with the body -> multi-tag PnP
+      - {id: 0, size: 0.060, margin: 0.005, center: [0.000, -0.1075, 0.0285], normal: [0, -1, 0], up: [0, 0, 1]}   # cube rear
+      - {id: 1, size: 0.060, margin: 0.005, center: [0.000, -0.0725, 0.0635], normal: [0, 0, 1], up: [0, 1, 0]}    # cube top
+      - {id: 2, size: 0.060, margin: 0.005, center: [-0.035, -0.0725, 0.0285], normal: [-1, 0, 0], up: [0, 0, 1]}  # cube left
+      - {id: 3, size: 0.060, margin: 0.005, center: [0.035, -0.0725, 0.0285], normal: [1, 0, 0], up: [0, 0, 1]}    # cube right
+      - {id: 4, size: 0.035, margin: 0.005, center: [-0.061, 0.026, 0.0198], normal: [0, 0, 1], up: [0, 1, 0]}     # top cover left
+      - {id: 5, size: 0.035, margin: 0.005, center: [0.061, 0.026, 0.0198], normal: [0, 0, 1], up: [0, 1, 0]}      # top cover right
+    jaw_tags:                   # ride on the finger holders; slide along `axis` by the travel t >= 0
+      - {id: 6, size: 0.018, margin: 0.001, center: [-0.060, 0.0875, 0.0166], normal: [0, 0, 1], up: [0, 1, 0], axis: [1, 0, 0]}   # left holder (thumb)
+      - {id: 7, size: 0.018, margin: 0.001, center: [0.060, 0.0875, 0.0166], normal: [0, 0, 1], up: [0, 1, 0], axis: [-1, 0, 0]}   # right holder (index)
+    # Moving parts per side (same axis as that side's jaw tag).
+    moving_parts:
+      left: [finger_holder_left_thumb, soft_finger_left]
+      right: [finger_holder_right_index, soft_finger_right]
+    # width = width_open - 2 * travel; fingertips meet at ~36 mm travel per side (cad/build_v2.py T_CLOSE).
+    width_open: 0.072
+    travel_max: 0.036
+    # TCP: midway between the fingertip pads. ESTIMATE from the soft-finger bounding box
+    # (y 78-201.4 mm, z -15.1..10.7 mm); measure on the printed part.
+    tcp_in_body: [0.000, 0.181, -0.0022]
+
+table_tag: {id: 20, size: 0.150, margin: 0.015}   # world frame = this tag: origin at its centre, +Z out of the table, +Y = marker up

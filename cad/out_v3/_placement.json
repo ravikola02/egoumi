@@ -1,0 +1,73 @@
+{
+ "UMI_print1_covers_PLA": {
+  "bottom_plate": [
+   113.0,
+   53.7,
+   false
+  ],
+  "top_cover": [
+   113.0,
+   153.1,
+   false
+  ]
+ },
+ "UMI_print2_internals_PLA": {
+  "grip": [
+   73.96,
+   43.8,
+   true
+  ],
+  "cube": [
+   163.91,
+   43.0,
+   false
+  ],
+  "finger_holder_right_index": [
+   246.56,
+   37.04,
+   true
+  ],
+  "slider": [
+   60.32,
+   114.8,
+   true
+  ],
+  "finger_holder_left_thumb": [
+   146.79,
+   112.14,
+   true
+  ],
+  "gear_left": [
+   227.47,
+   106.59,
+   false
+  ],
+  "gear_right": [
+   290.53,
+   106.59,
+   false
+  ],
+  "linkage_left": [
+   44.0,
+   155.99,
+   true
+  ],
+  "linkage_right": [
+   86.0,
+   155.99,
+   true
+  ]
+ },
+ "UMI_print3_fingers_TPU": {
+  "soft_finger_left": [
+   88.68,
+   28.0,
+   true
+  ],
+  "soft_finger_right": [
+   220.05,
+   28.0,
+   true
+  ]
+ }
+}
