@@ -1,7 +1,8 @@
 # EgoUMI: UMI pinch gripper + ArUco head-camera tracking
 
-> 🚧 **Work in progress.** The hardware is designed but not yet printed or fit-tested, and the tracking pipeline
-> has so far been tested **only in simulation**. Expect breaking changes.
+> 🚧 **Work in progress.** The hardware is designed but not yet printed or fit-tested. The gripper tracking has been
+> tested **only in simulation**; the capture → LeRobot pipeline has also run on real 3-camera footage, without
+> gripper poses. Expect breaking changes.
 
 A non-powered, UMI-style handheld gripper that you close with a thumb + index pinch, tracked with ArUco markers
 from an egocentric **head** camera, so that human demonstrations can become robot-learning datasets.
@@ -25,14 +26,28 @@ ground truth, and the number of body tags used.*
 | `sim/`: synthetic head-camera episodes (textured CAD, ArUco stickers, hand stand-in, table tag, object, head bob, tremor, blur, noise) in HaWoR's frame layout, with ground truth | working |
 | `umi_pipe/` + `scripts/gripper_pose.py`: subpixel ArUco → multi-tag PnP (SQPNP + LM, outlier rejection, single-tag disambiguation) → joint body + jaw refinement → jaw width → world TCP pose | working in sim |
 | `scripts/preview_gripper.py`: the preview above, the gripper counterpart of HaWoR's MANO cam/world visualisation; also runs on real sequences without ground truth | working |
-| `collection/`: 3-camera capture (head + 2 gripper/wrist cams) → sync → browser tagger → frame-exact clips → LeRobot v3.0 / v2.1, the h2r_collection flow without HaWoR ([details](collection/README.md)) | working, video-only: **no end-effector pose or gripper values yet** |
-| Gripper pose as dataset state (`--state-source gripper`), camera calibration, SLAM masks | planned |
+| `collection/`: 3-camera capture (head + 2 gripper/wrist cams) → audio sync → browser tagger → frame-exact clips → LeRobot v3.0 / v2.1, the h2r_collection flow without HaWoR ([details](collection/README.md)) | working: tested on the h2r_collection Sample session and on a rendered capture |
+| Trajectories in the dataset: `--state-source aruco` reconstructs the gripper TCP from the head clips (14-d h2r_collection layout); with sim ground truth the same dataset also gets `observation.state_gt` / `action_gt` | working in sim; head-camera motion still comes from the sim (SLAM not wired), gripper value not measured (jaw tags not visible) |
+| `sim/render_capture.py`: rendered raw capture (head camera, gripper GoPro, blank second wrist feed, skewed clocks, clap soundtrack) + `sim/check_capture_sync.py` (sync and cut accuracy against ground truth) | working |
+| HaWoR SLAM for head-camera motion, camera calibration, user-facing jaw tags, real captures | planned |
 
 ## Quick start: capture → LeRobot dataset
 ```bash
 python3 collection/run_pipeline.py --session <session>   # data/raw/<session>/{top_cam,left_w_cam,right_w_cam}/
 ```
 See [collection/README.md](collection/README.md).
+
+[![LeRobot dataset built from a rendered capture: blank left wrist, head camera, gripper GoPro](assets/dataset_sim_capture.gif)](assets/dataset_sim_capture.mp4)
+
+*A LeRobot v3.0 dataset made by the pipeline from a rendered capture ([mp4](assets/dataset_sim_capture.mp4)): blank
+left wrist feed | head camera | GoPro on the gripper. The three recordings started at different times with skewed
+clocks; the audio sync recovered the offsets exactly and every cut is frame-exact against ground truth.*
+
+![observation.state (ArUco pipeline) vs observation.state_gt (ground truth) from that dataset](assets/dataset_trajectories.png)
+
+*The same dataset's trajectory columns: `observation.state` reconstructed by the ArUco pipeline (purple) against
+`observation.state_gt` (green), right gripper TCP in each episode's first head-camera frame. TCP error median
+0.5–2.2 mm; the head-camera motion here comes from the sim.*
 
 ## Quick start (simulation)
 Runs in a Python env with `pyrender`, `trimesh`, `opencv-python` (≥ 4.7, ArUco), `scipy`, `pyyaml` and
@@ -70,7 +85,7 @@ cad/            CadQuery build scripts (v1 → v3), Stanford UMI input STEP, v3 
 collection/     capture → LeRobot pipeline (sync, tagger, converter)
 configs/        marker layouts (body frame = CAD assembly frame, metres), sim camera
 docs/           pipeline plan for h2r_collection, print notes
-sim/            episode renderer, mesh export, one-command test runner
+sim/            episode + raw-capture renderers, sync/cut checker, mesh export, one-command test runner
 umi_pipe/       shared model / rendering / pose-estimation code
 scripts/        gripper_pose.py (pipeline), preview_gripper.py (preview)
 assets/         README media
@@ -79,6 +94,7 @@ assets/         README media
 ## Credits and licence
 - Gripper mechanism and base CAD: [Universal Manipulation Interface](https://umi-gripper.github.io/) (Chi et al.,
   Stanford). The files in `cad/input/` are their design exported from Onshape; their terms apply to that design.
-- Data pipeline: [h2r_collection](https://github.com/ravikola02/h2r_collection), which uses
+- Data pipeline: [h2r_collection](https://github.com/ravikola02/h2r_collection); `collection/` vendors its sync,
+  tagger and dataset writers. h2r_collection uses
   [HaWoR](https://github.com/ThunderVVV/HaWoR) (CC BY-NC-ND).
 - The code in this repository is MIT licensed (see `LICENSE`).
