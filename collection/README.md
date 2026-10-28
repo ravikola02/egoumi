@@ -57,7 +57,8 @@ Camera keys: `observation.images.{head,wrist_left,wrist_right}` (identical to h2
 - `meta/egoumi_episodes.json` maps dataset episode indices to cut-sheet names and per-camera frame counts, plus the
   state source's per-episode report (pose coverage, single-tag share, gripper coverage, error vs ground truth).
 - Trajectory convention (as in h2r_collection): world = the episode's first head-camera frame, OpenCV optical axes,
-  metres; eef +z = approach (gripper body +Y), +x = jaw axis; rpy = intrinsic XYZ, wrapped; gripper 1 = closed;
+  metres; eef frame = h2r_collection's hand frame on the gripper: +z approach (body +Y, finger direction), +y jaw
+  axis toward the thumb-side jaw (body -X), +x grip-plane normal (body -Z); rpy = intrinsic XYZ, wrapped; gripper 1 = closed;
   `action[t] = state[t+1]`.
 
 ## Dummy capture for testing (pyrender)

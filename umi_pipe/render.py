@@ -1,4 +1,4 @@
-"""pyrender scenes for the sim (textured gripper, hand stand-in, table, table tag, object)
+"""pyrender scenes for the sim (textured gripper, hand stand-in, wood-grain table, optional table tag, object)
 and for the preview (flat-coloured gripper ghosts, camera frustums, trails).
 
 Run with PYOPENGL_PLATFORM=egl for headless rendering.
@@ -42,6 +42,24 @@ def textured_quad(corners, img):
                               normals=np.tile(_unit(np.cross(corners[3] - corners[0], corners[1] - corners[0])), (4, 1)).astype(np.float32),
                               indices=np.array([[0, 2, 1], [0, 3, 2]], np.uint32), material=mat)
     return pyrender.Mesh([prim])
+
+
+def wood_texture(w, h, seed=3):
+    """Procedural light-oak table top, (h, w, 3) uint8: planks along x with wavy grain, knots and fibre noise."""
+    rng = np.random.default_rng(seed)
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    plank_h = h / 6.0
+    plank = np.floor(yy / plank_h)
+    shade = (rng.uniform(-0.08, 0.08, 7)[plank.astype(int).clip(0, 6)])          # per-plank tone
+    off = rng.uniform(0, 1000, 7)[plank.astype(int).clip(0, 6)]
+    warp = 6.0 * np.sin((xx + off) / 230.0) + 3.0 * np.sin((xx + 2 * off) / 71.0)
+    grain = 0.5 + 0.5 * np.sin((yy + warp) / 3.1) * np.sin((yy + warp) / 17.0 + xx / 900.0)
+    fibre = rng.normal(0, 1, (h, w // 8 + 1)).repeat(8, axis=1)[:, :w]           # streaks along the grain
+    t = 0.62 + shade + 0.10 * grain + 0.035 * fibre
+    seams = (np.mod(yy, plank_h) < 2.5)                                          # dark joints between planks
+    t = np.where(seams, 0.30, t).clip(0, 1)
+    base = np.array([0.80, 0.58, 0.36])                                         # light oak
+    return (t[..., None] * base * 255).clip(0, 255).astype(np.uint8)
 
 
 def capsule(p0, p1, r):
@@ -93,9 +111,17 @@ class Scene3D:
         self.scene.add(pyrender.DirectionalLight(intensity=intensity), pose=make_T(np.stack([x, np.cross(z, x), z], 1)))
 
     # ---- static world -------------------------------------------------------------------
-    def add_table(self, model, size=(1.2, 0.8), offset=(0.0, 0.15), color=(0.22, 0.24, 0.27, 1.0), tag=True):
+    def add_table(self, model, size=(1.2, 0.8), offset=(0.0, 0.15), color=(0.36, 0.22, 0.12, 1.0), tag=False,
+                  wood=True, seed=3):
+        """Table top at z = 0: a 2 cm slab with a wood-grain top (distinct from the grey floor/wall, and real texture
+        for SLAM). The ArUco table tag is off by default: nothing in the pipeline uses it (world = first head frame)."""
         box = trimesh.creation.box(extents=[size[0], size[1], 0.02]); box.apply_translation([offset[0], offset[1], -0.0101])
         self.scene.add(pyrender.Mesh.from_trimesh(box, material=_mat(color), smooth=False))
+        if wood:
+            x0, x1 = offset[0] - size[0] / 2, offset[0] + size[0] / 2
+            y0, y1 = offset[1] - size[1] / 2, offset[1] + size[1] / 2
+            corners = np.array([[x0, y1, 0.0001], [x1, y1, 0.0001], [x1, y0, 0.0001], [x0, y0, 0.0001]])
+            self.scene.add(textured_quad(corners, wood_texture(int(size[0] * 2000), int(size[1] * 2000), seed)))
         if tag:
             t = model.table_tag
             img = model.tag_image(t)

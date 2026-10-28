@@ -24,15 +24,16 @@ Output: `sim/episodes/<name>/preview/gripper_preview.mp4`, `metrics.json` and `t
 | `scripts/gripper_pose.py` | per frame: subpixel ArUco → multi-tag SQPNP+LM (outlier tags dropped; single tag = IPPE disambiguated by the previous frame) → joint body+jaw refine → 1-D jaw travel per side → world pose; short gaps interpolated |
 | `scripts/preview_gripper.py` | camera view (estimated mesh over the frame, tags, TCP axes, GT cross) + world view (estimate vs GT ghost, trails, frustums) + timeline; works without `gt.npz` on real sequences |
 
-`--cam-source`: `gt` = perfect SLAM (isolates the marker pipeline), `table` = per-frame table-tag pose, `none` = camera frame.
+`--cam-source`: `gt` = perfect SLAM (isolates the marker pipeline), `none` = camera frame, `table` = per-frame
+table-tag pose (needs a table tag; the sim no longer renders one: `Scene3D.add_table(tag=True)` puts it back).
 
 ## Results (2026-10-28, sim, f = 1050 px, gripper and markers as in the CAD)
 Head camera: the egocentric view behind and above the user's hands (`--head 0.0,-0.42,0.58 --look 0.0,0.12,0.0`).
 
 | Episode | TCP median / p90 / max [mm] | rot median [deg] | jaw width from the head camera | width err median / max [mm] | single-tag frames |
 |---|---|---|---|---|---|
-| pick_place | 1.8 / 6.4 / 16.2 | 0.31 | 21 % of frames | 0.00 / 0.44 | 25 % |
-| roll | 0.57 / 0.94 / 1.8 | 0.07 | 73 % | 0.22 / 0.91 | 1 % |
+| pick_place | 1.7 / 6.1 / 16.2 | 0.31 | 21 % of frames | 0.00 / 0.44 | 25 % |
+| roll | 0.60 / 0.98 / 1.8 | 0.07 | 73 % | 0.21 / 0.94 | 1 % |
 
 Jaw width is meant to come from the **gripper (wrist) camera**, as in UMI: it is rigid to the gripper, so each jaw
 tag only slides along its rail in that view. `render_capture.py` renders that camera at the GoPro lens, pitched

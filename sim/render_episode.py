@@ -10,7 +10,7 @@ Writes, in the HaWoR sequence layout so the real pipeline can run on it unchange
                                            T_world_object, grasped, t
     <out>/gt_masks.npz (--save-masks)      packed bool (T,H,W) gripper+hand silhouette = what model_masks.npy should be
 
-World frame = table tag (configs/gripper_markers.yaml table_tag). Trajectory: a pick-and-place of a 40 mm cube
+World frame = the table frame (origin on the table top, z up; no marker is drawn). Trajectory: a pick-and-place of a 40 mm cube
 from keyframes (preset below) + head bob/turn + hand tremor; the gripper closes to the cube width.
 """
 import os, sys, argparse, shutil, yaml
@@ -28,7 +28,7 @@ from umi_pipe.render import Scene3D
 OBJ = 0.040   # cube edge
 
 # Keyframes for the TCP: (t [s], position [m], finger dir (body +Y), cover-up dir (body +Z), width [m]).
-# Positions in the table-tag world frame; the cube starts at PICK and ends at PLACE.
+# Positions in the table world frame; the cube starts at PICK and ends at PLACE.
 PICK, PLACE = np.array([0.10, 0.18, OBJ / 2]), np.array([-0.12, 0.20, OBJ / 2])
 PRESETS = {
     "pick_place": [

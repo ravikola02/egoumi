@@ -8,7 +8,7 @@ T_world_tcp = T_world_cam . T_cam_body . T_body_tcp. Short gaps are interpolated
 
 --cam-source picks T_world_cam (what HaWoR's SLAM provides in the real pipeline):
     gt     sim ground truth (<seq>/gt.npz) = perfect SLAM; isolates the marker pipeline
-    table  per-frame table-tag pose (frames without the table tag are invalid)
+    table  per-frame table-tag pose (needs a table tag in view; the sim does not render one by default)
     none   camera frame only (T_world_cam = I)
 Writes <seq>/gripper_pose/poses.npz and detections.json.
 """

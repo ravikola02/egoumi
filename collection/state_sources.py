@@ -61,13 +61,18 @@ class ZerosSource:
 # ---------------------------------------------------------------------------------------------------------
 # Gripper trajectories (one gripper, on the right arm). Frame and angle conventions follow h2r_collection:
 #   world = the episode's first head-camera frame, OpenCV optical axes (x right, y down, z forward), metres;
-#   eef frame: +z = approach (gripper body +Y, finger direction), +x = jaw axis (body +X), +y = z cross x;
+#   eef frame = h2r_collection's hand frame mapped onto the gripper (standard parallel-gripper EEF):
+#     +z = approach (body +Y, finger direction)       [h2r: wrist -> pinch point]
+#     +y = jaw axis toward the thumb-side jaw (body -X) [h2r: z x x, thumb side for the right hand]
+#     +x = y x z = grip-plane normal (body -Z)           [h2r: palm normal, x_sign -1 for the right hand]
+#   Identical to h2r's _wrist_rotmats when its wrist point lies on the approach line; a real wrist below the grip
+#   would tilt h2r's literal formula ~23 deg in pitch, so the gripper's own finger axis is used as z;
 #   rpy = intrinsic XYZ Euler of that frame (scipy "XYZ"), wrapped to (-pi, pi] like h2r_collection;
 #   gripper = 1 - width / width_open, clipped to [0, 1] (1 = closed).
 # The left arm has no gripper in these captures: its 7 dims are zero and flagged in info.json.
 # ---------------------------------------------------------------------------------------------------------
 
-R_TCP_EEF = np.array([[1.0, 0, 0], [0, 0, 1], [0, -1, 0]])     # columns: eef x, y, z in the gripper body frame
+R_TCP_EEF = np.array([[0.0, -1, 0], [0, 0, 1], [-1, 0, 0]])    # columns: eef x, y, z in the gripper body frame
 
 
 def inv_batch(T: np.ndarray) -> np.ndarray:
@@ -185,7 +190,7 @@ class SimGtSource(_GripperBase):
     def info(self) -> Dict:
         return {"state_source": self.name, "state_placeholder": False, "state_layout": H2R_14D_LAYOUT,
                 "state_signal": "SIM GROUND TRUTH (sim/render_capture.py): right gripper TCP pose in the episode's "
-                                "first head-camera optical frame; eef +z = approach (body +Y), +x = jaw axis; "
+                                "first head-camera optical frame; eef frame as h2r_collection (+z approach = body +Y, +y jaw axis toward the thumb side = body -X, +x = body -Z); "
                                 "intrinsic-XYZ rpy; right.gripper = 1 - width/0.072 m (1 = closed). "
                                 "Left arm absent: left.* dims are zero."}
 
@@ -332,8 +337,9 @@ class ArucoSource(_GripperBase):
                                           "action_gt": "action_gt[t] = observation.state_gt[t+1]"}
                                          if self._gt is not None else {}),
                 "state_signal": "ArUco gripper pose from the head clip (multi-tag PnP), right gripper TCP in the "
-                                "episode's first head-camera optical frame; eef +z = approach (body +Y), +x = jaw "
-                                "axis; intrinsic-XYZ rpy. Head-camera motion: " +
+                                "episode's first head-camera optical frame; eef frame as h2r_collection (+z approach = "
+                                "body +Y, +y jaw axis toward the thumb side = body -X, +x = body -Z); intrinsic-XYZ rpy. "
+                                "Head-camera motion: " +
                                 ("SIM GROUND TRUTH standing in for SLAM (not wired yet)." if self.cam_motion == "sim_gt"
                                  else self.cam_motion) +
                                 " right.gripper = 1 - width/width_open from the jaw tags, seen by the gripper (wrist) camera "

@@ -23,7 +23,7 @@ ground truth, and the number of body tags used.*
 | Part | Status |
 |---|---|
 | `cad/`: gripper derived from the [Stanford UMI](https://umi-gripper.github.io/) CAD; pistol grip kept, trigger replaced by a thumb ring and an index ring on the finger holders; mirrors removed to make room for tags | CAD done and collision-checked, print files for a Bambu H2D in `cad/out_v3` ([print notes](docs/PRINT_NOTES.md)); **not printed yet** |
-| `sim/`: synthetic head-camera episodes (textured CAD, ArUco stickers, hand stand-in, table tag, object, head bob, tremor, blur, noise) in HaWoR's frame layout, with ground truth | working |
+| `sim/`: synthetic head-camera episodes (textured CAD, ArUco stickers, hand stand-in, wood-grain table, object, head bob, tremor, blur, noise) in HaWoR's frame layout, with ground truth | working |
 | `umi_pipe/` + `scripts/gripper_pose.py`: subpixel ArUco → multi-tag PnP (SQPNP + LM, outlier rejection, single-tag disambiguation) → joint body + jaw refinement → jaw width → world TCP pose | working in sim |
 | `scripts/preview_gripper.py`: the preview above, the gripper counterpart of HaWoR's MANO cam/world visualisation; also runs on real sequences without ground truth | working |
 | `collection/`: 3-camera capture (head + 2 gripper/wrist cams) → audio sync → browser tagger → frame-exact clips → LeRobot v3.0 / v2.1, the h2r_collection flow without HaWoR ([details](collection/README.md)) | working: tested on the h2r_collection Sample session and on a rendered capture |
@@ -69,8 +69,8 @@ Egocentric head camera (behind and above the user's hands); gripper and markers 
 
 | Episode | TCP error median / p90 / max | Jaw width seen by the head camera |
 |---|---|---|
-| pick-and-place | 1.8 / 6.4 / 16.2 mm | 21 % of frames (width error median 0.00, max 0.44 mm) |
-| wrist roll | 0.57 / 0.94 / 1.8 mm | 73 % (median 0.22, max 0.91 mm) |
+| pick-and-place | 1.7 / 6.1 / 16.2 mm | 21 % of frames (width error median 0.00, max 0.44 mm) |
+| wrist roll | 0.60 / 0.98 / 1.8 mm | 73 % (median 0.21, max 0.94 mm) |
 
 Jaw width comes from the **gripper (wrist) camera**, as in UMI. In the render it sits at the GoPro lens, pitched
 down 15° so both jaw tags stay in its pinhole frame over the full travel; it sees both tags at every travel.
@@ -81,7 +81,8 @@ What the sim showed so far (details in [sim/README.md](sim/README.md)):
   textures; stickers lit only by ambient light), both fixed.
 - Frames where only one body tag is visible cause most of the head-camera pose error: the TCP is about 29 cm from
   the cube tags.
-- Camera motion has to come from SLAM; a static table tag can give scale and the world frame.
+- Camera motion has to come from SLAM. There is no table marker: like h2r_collection, the world frame is each
+  episode's first head-camera frame, so nothing needs one (an optional table tag could later check SLAM scale/drift).
 
 Not modelled yet: lens distortion, rolling shutter, glare, real SLAM drift. The TCP point is an estimate from the CAD.
 

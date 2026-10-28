@@ -3,6 +3,9 @@
 Based on reading h2r_collection `scripts/convert_to_lerobot.py` and HaWoR `scripts/scripts_test_video/{detect_track_video,hawor_video,hawor_slam}.py`,
 `lib/pipeline/{masked_droid_slam,est_scale}.py`, `lib/eval_utils/custom_utils.py`. Nothing implemented or run yet.
 
+> 2026-10-28: the table marker is dropped from the sim and is not needed: like h2r_collection, the dataset world frame
+> is each episode's first head-camera frame. The table-tag items below are optional (SLAM scale/drift check only).
+
 ## Key finding
 `hawor_slam(args, s, e)` only needs: extracted frames (`<seq>/extracted_images/*.jpg`), a focal (`args.img_focal`,
 principal point assumed at image centre by `est_calib`), and a dynamic-object mask
