@@ -29,9 +29,9 @@ the default `--style debug` overlays the estimate on the frame with per-tag deta
 | `umi_pipe/` + `scripts/gripper_pose.py`: subpixel ArUco → multi-tag PnP (SQPNP + LM, outlier rejection, single-tag disambiguation) → joint body + jaw refinement → jaw width → world TCP pose | working in sim |
 | `scripts/preview_gripper.py`: the preview above, the gripper counterpart of HaWoR's MANO cam/world visualisation; also runs on real sequences without ground truth | working |
 | `collection/`: 3-camera capture (head + 2 gripper/wrist cams) → audio sync → browser tagger → frame-exact clips → LeRobot v3.0 / v2.1, the h2r_collection flow without HaWoR ([details](collection/README.md)) | working: tested on the h2r_collection Sample session and on a rendered capture |
-| Trajectories in the dataset: `--state-source aruco` reconstructs the gripper TCP from the head clips (14-d h2r_collection layout); with sim ground truth the same dataset also gets `observation.state_gt` / `action_gt` | working in sim: gripper value from the gripper (wrist) camera on 100 % of frames; causal EMA α 0.18 on the predicted pose, position and orientation (chosen by the h2r delta-noise criterion, `sim/ema_sweep.py`); head-camera motion still comes from the sim (SLAM not wired) |
+| Trajectories in the dataset: `--state-source aruco` reconstructs the gripper TCP from the head clips (14-d h2r_collection layout); with sim ground truth the same dataset also gets `observation.state_gt` / `action_gt` | working in sim: gripper value from the gripper (wrist) camera on 100 % of frames; causal EMA α 0.18 on the predicted pose, position and orientation (chosen by the h2r delta-noise criterion, `sim/ema_sweep.py`); head-camera motion from HaWoR's SLAM (masked DROID-SLAM + Metric3D, as h2r_collection) |
 | `sim/render_capture.py`: rendered raw capture (head camera, gripper GoPro, blank second wrist feed, skewed clocks, clap soundtrack) + `sim/check_capture_sync.py` (sync and cut accuracy against ground truth) | working |
-| HaWoR SLAM for head-camera motion, camera calibration, real captures | planned |
+| Camera calibration (lens distortion), real captures | planned |
 
 ## Recording
 Cameras are DJI Osmo Nanos, as in h2r_collection (head + one on the gripper). Settings, mounts and the per-session
@@ -66,11 +66,13 @@ clocks; the audio sync recovered the offsets exactly and every cut is frame-exac
 
 ![observation.state (ArUco pipeline) vs observation.state_gt (ground truth) from that dataset](assets/dataset_trajectories.png)
 
-*The same dataset's trajectory columns: `observation.state` reconstructed by the ArUco pipeline (purple) against
-the raw `observation.state_gt` (green). Right gripper TCP in each episode's first head-camera frame; the head-camera
-motion here comes from the sim. The gripper value comes from the wrist camera (within about 1 mm of jaw width). The
-pose carries a causal EMA (α 0.18 on position and on orientation, 152 ms lag), which brings the one-step delta noise to the G1 robot's level;
-the lag is what separates the purple and green position curves (`--ema-pos 1` turns it off).*
+*The same dataset's trajectory columns: `observation.state` reconstructed by the full pipeline (purple) against the
+raw `observation.state_gt` (green), right gripper TCP in each episode's first head-camera frame. The gripper pose
+comes from the ArUco markers and the head-camera motion from HaWoR's SLAM (masked DROID-SLAM + Metric3D); the
+gripper value comes from the wrist camera (within about 1 mm of jaw width). Before the EMA the TCP error is
+3.3–5.3 mm median. The pose carries a causal EMA (α 0.18 on position and on orientation, 152 ms lag), which brings
+the one-step delta noise to the G1 robot's level; the lag is what separates the purple and green position curves
+(`--ema-pos 1` turns it off).*
 
 ## Quick start (simulation)
 Runs in a Python env with `pyrender`, `trimesh`, `opencv-python` (≥ 4.7, ArUco), `scipy`, `pyyaml` and
@@ -103,10 +105,13 @@ What the sim showed so far (details in [sim/README.md](sim/README.md)):
   textures; stickers lit only by ambient light), both fixed.
 - Frames where only one body tag is visible cause most of the head-camera pose error: the TCP is about 29 cm from
   the cube tags.
-- Camera motion has to come from SLAM. There is no table marker: like h2r_collection, the world frame is each
-  episode's first head-camera frame, so nothing needs one (an optional table tag could later check SLAM scale/drift).
+- Head-camera motion comes from HaWoR's SLAM (masked DROID-SLAM + Metric3D scale, as h2r_collection), with the
+  gripper and hand masked at their ArUco pose. On the rendered capture it tracks the head within 2–4 mm and
+  0.03–0.05° (median); Metric3D's scale is 8–22 % off, the largest remaining term. In a plain-coloured room it
+  failed (scale 3.9× off, 13 mm/frame jitter): it needs scene texture, which real rooms have.
+- There is no table marker: like h2r_collection, the world frame is each episode's first head-camera frame.
 
-Not modelled yet: lens distortion, rolling shutter, glare, real SLAM drift. The TCP point is an estimate from the CAD.
+Not modelled yet: lens distortion, rolling shutter, glare. The TCP point is an estimate from the CAD.
 
 ## Layout
 ```

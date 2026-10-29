@@ -18,9 +18,11 @@ Output: `sim/episodes/<name>/preview/gripper_preview.mp4`, `metrics.json` and `t
 |---|---|
 | `sim/export_meshes.py` | v3 STEP → assembly-frame STLs in metres (`sim/assets/meshes/`); needs `.venv-cad` (CadQuery 2.7.0; 2.8.0 is not on PyPI for py3.10) |
 | `configs/gripper_markers.yaml` | tag IDs, sizes, poses in the body frame, jaw axes, TCP, width model, table tag |
-| `configs/camera_sim.yaml` | pinhole camera, 1920×1080, f = 1050 px, 30 fps |
-| `umi_pipe/` | shared code: `model.py` (tags, jaw motion), `render.py` (pyrender scenes), `pose.py` (detection, PnP, jaw fit, table tag) |
+| `configs/camera_sim.yaml` | pinhole camera, 1920×1080, f = 600 px (DJI Osmo Nano, as h2r_collection), 30 fps |
+| `umi_pipe/` | shared code: `model.py` (tags, jaw motion), `render.py` (pyrender scenes, incl. the textured room: tiled floor, plaster walls with posters), `pose.py` (detection, PnP, jaw fit, table tag) |
 | `sim/render_episode.py` | keyframed pick-place / roll, head bob, hand tremor, motion blur, noise, 2× supersampling, hand stand-in, object; writes HaWoR layout `extracted_images/%04d.jpg` + `gt.npz` (+ `gt_masks.npz`) |
+| `sim/render_capture.py` + `sim/check_capture_sync.py` | raw 3-camera capture (head, gripper camera, blank feed; skewed clocks, clap audio) and its sync / cut scoring |
+| `sim/check_slam.py` | scores HaWoR SLAM head-camera trajectories (`collection/head_slam.py` cache) against ground truth: raw error, Metric3D scale correction, Sim3 residual, jitter |
 | `scripts/gripper_pose.py` | per frame: subpixel ArUco → multi-tag SQPNP+LM (outlier tags dropped; single tag = IPPE disambiguated by the previous frame) → joint body+jaw refine → 1-D jaw travel per side → world pose; short gaps interpolated |
 | `scripts/preview_gripper.py` | camera view (estimated mesh over the frame, tags, TCP axes, GT cross) + world view (estimate vs GT ghost, trails, the moving head camera) + timeline; the world view auto-frames the gripper track and the head-camera path; `--style presentation` shows the raw recording next to the reconstruction with title bars and a legend (README media); works without `gt.npz` on real sequences |
 
@@ -61,4 +63,5 @@ Findings:
 - Lens distortion (renders are ideal pinhole), rolling shutter, auto-exposure, specular glare, sticker wrinkles.
 - Gears, linkages and slider are not articulated (hidden under the cover); fingers are rigid boxes in the hand stand-in.
 - TCP point is an estimate from the soft-finger bounding box (`tcp_in_body`).
-- Real-sequence use: the preview needs `<seq>/camera.yaml`; `--cam-source slam` (HaWoR SLAM) is not wired yet.
+- Real-sequence use: the preview needs `<seq>/camera.yaml`. HaWoR SLAM runs in the collection pipeline
+  (`collection/head_slam.py`, `--cam-motion hawor_slam`), not in `scripts/gripper_pose.py`.

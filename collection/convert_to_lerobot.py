@@ -99,7 +99,12 @@ def main(argv=None) -> int:
                                     "configs/cameras_osmo_nano.yaml, the h2r_collection DJI Osmo Nano setup; "
                                     "sim: <session>/sim_gt/cameras.yaml)")
     p.add_argument("--markers", help="marker layout yaml (default configs/gripper_markers.yaml)")
-    p.add_argument("--cam-motion", default="sim_gt", help="head-camera motion for aruco: sim_gt (SLAM not wired yet)")
+    p.add_argument("--cam-motion", choices=["hawor_slam", "sim_gt", "none"], default="hawor_slam",
+                   help="head-camera motion for aruco: hawor_slam (default; HaWoR's masked DROID-SLAM + Metric3D in "
+                        "the HaWoR env, via HAWOR_PYTHON / HAWOR_REPO), sim_gt (sim ground truth), none (camera frame)")
+    p.add_argument("--slam-cache", help="SLAM work/cache dir (default: <out>/../slam_cache)")
+    p.add_argument("--slam-dilate", type=int, default=25, help="gripper+hand mask dilation for SLAM [px]")
+    p.add_argument("--no-slam-mask", action="store_true", help="run SLAM without the gripper+hand mask (for tests)")
     p.add_argument("--ema-pos", type=float, default=0.18,
                    help="aruco: causal EMA alpha on the predicted TCP position (default 0.18 from sim/ema_sweep.py: "
                         "one-step delta noise at the G1 FK level; h2r kitting used 0.164; 1.0 = off)")
@@ -130,7 +135,9 @@ def main(argv=None) -> int:
         print(f"  camera:   {args.camera} (h2r_collection DJI Osmo Nano intrinsics)")
     source = get_source(args.state_source, cut_sheet=cut_sheet, sim_gt=args.sim_gt, camera=args.camera,
                         markers=args.markers, cam_motion=args.cam_motion, ema_pos=args.ema_pos,
-                        ema_grip=args.ema_grip, ema_rot=args.ema_rot)
+                        ema_grip=args.ema_grip, ema_rot=args.ema_rot,
+                        slam_cache=args.slam_cache or str(out_root.parent / "slam_cache"),
+                        slam_mask=not args.no_slam_mask, slam_dilate=args.slam_dilate)
     session_id = args.session_id or cut_sheet.parent.name
 
     episodes = load_episodes(cut_sheet, clips_dir)

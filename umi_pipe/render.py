@@ -62,6 +62,42 @@ def wood_texture(w, h, seed=3):
     return (t[..., None] * base * 255).clip(0, 255).astype(np.uint8)
 
 
+def floor_texture(w, h, metres, tile=0.30, seed=5):
+    """Grey stone tiles with grout, per-tile tone and speckle; `metres` = side length the texture covers."""
+    rng = np.random.default_rng(seed)
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    px = w / metres * tile
+    ti, tj = (xx // px).astype(int), (yy // px).astype(int)
+    tone = rng.uniform(0.42, 0.62, (tj.max() + 1, ti.max() + 1))[tj, ti]
+    t = tone + 0.06 * rng.normal(0, 1, (h, w)) + 0.04 * np.sin(xx / 37.0 + yy / 53.0)
+    grout = (np.mod(xx, px) < 4) | (np.mod(yy, px) < 4)
+    t = np.where(grout, 0.22, t).clip(0, 1)
+    return (t[..., None] * np.array([0.92, 0.90, 0.86]) * 255).astype(np.uint8)
+
+
+def wall_texture(w, h, seed=7, posters=True):
+    """Off-white plaster with framed posters and shelves: the kind of texture SLAM tracks on a real wall."""
+    rng = np.random.default_rng(seed)
+    base = 0.80 + 0.035 * rng.normal(0, 1, (h // 4 + 1, w // 4 + 1))
+    img = np.repeat(np.repeat(base, 4, 0), 4, 1)[:h, :w, None] * np.array([0.97, 0.95, 0.90])
+    img = img + 0.02 * rng.normal(0, 1, (h, w, 1))
+    if posters:
+        for _ in range(9):
+            pw, ph = int(rng.uniform(0.08, 0.18) * w), int(rng.uniform(0.10, 0.28) * h)
+            x0, y0 = int(rng.uniform(0, w - pw)), int(rng.uniform(0.05 * h, 0.75 * h - ph))
+            img[y0:y0 + ph, x0:x0 + pw] = 0.12                                     # frame
+            c = rng.uniform(0.15, 0.95, 3)
+            inner = c + 0.25 * rng.normal(0, 1, (ph - 16, pw - 16, 1)) * rng.uniform(0.2, 1.0, 3)
+            for _k in range(6):                                                  # shapes inside the poster
+                a, b = int(rng.uniform(0, ph - 30)), int(rng.uniform(0, pw - 30))
+                inner[a:a + int(rng.uniform(10, ph / 2)), b:b + int(rng.uniform(10, pw / 2))] = rng.uniform(0, 1, 3)
+            img[y0 + 8:y0 + ph - 8, x0 + 8:x0 + pw - 8] = inner
+        for _ in range(2):                                                       # shelves
+            y = int(rng.uniform(0.15, 0.7) * h)
+            img[y:y + 18, int(0.05 * w):int(0.95 * w)] = np.array([0.45, 0.32, 0.20])
+    return (img.clip(0, 1) * 255).astype(np.uint8)
+
+
 def capsule(p0, p1, r):
     p0, p1 = np.asarray(p0, float), np.asarray(p1, float)
     v = p1 - p0; L = np.linalg.norm(v)
@@ -127,6 +163,19 @@ class Scene3D:
             img = model.tag_image(t)
             corners = t.corners(half=t.size / 2 + t.margin) + [0, 0, 0.0003]
             self.scene.add(textured_quad(corners, img))
+
+    def add_room(self, seed=0):
+        """Textured floor (z = -0.75), front wall (y = 1.2) and side walls (x = +-1.5): texture for SLAM to track
+        and realistic cues for metric-depth networks (a plain-coloured room starves both)."""
+        z0, z1, y0, y1, x = -0.75, 2.25, -2.0, 1.2, 1.5
+        quads = [   # TL, TR, BR, BL as seen from inside the room (outward normal faces the scene)
+            ([[-2, 2, z0], [2, 2, z0], [2, -2, z0], [-2, -2, z0]], floor_texture(2048, 2048, 4.0, seed=5 + seed)),
+            ([[-2, y1, z1], [2, y1, z1], [2, y1, z0], [-2, y1, z0]], wall_texture(2048, 1536, seed=7 + seed)),
+            ([[-x, y0, z1], [-x, y1, z1], [-x, y1, z0], [-x, y0, z0]], wall_texture(2048, 1536, seed=11 + seed)),
+            ([[x, y1, z1], [x, y0, z1], [x, y0, z0], [x, y1, z0]], wall_texture(2048, 1536, seed=13 + seed)),
+        ]
+        for corners, img in quads:
+            self.scene.add(textured_quad(np.array(corners, float), img))
 
     def add_mesh(self, mesh, rgba, pose=np.eye(4), alpha_blend=False, smooth=False):
         return self.scene.add(pyrender.Mesh.from_trimesh(mesh, material=_mat(rgba, alpha_blend=alpha_blend), smooth=smooth),

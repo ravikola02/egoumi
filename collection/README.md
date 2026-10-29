@@ -2,8 +2,8 @@
 
 > 🚧 Work in progress. Cameras, sync, cutting and the dataset writers work (tested on the
 > [h2r_collection](https://github.com/ravikola02/h2r_collection) Sample session and a rendered capture). The gripper
-> trajectory (`--state-source aruco`) works **in sim only**: head-camera motion still comes from the sim, because
-> SLAM is not wired in yet. Without it, datasets are video-only (or carry a flagged zero placeholder).
+> trajectory (`--state-source aruco`, head-camera motion from HaWoR's SLAM) is tested **in sim only** so far; real
+> captures are pending. Without it, datasets are video-only (or carry a flagged zero placeholder).
 
 The same flow as h2r_collection's pipeline, with HaWoR removed:
 
@@ -46,6 +46,35 @@ h2r_collection used, in `configs/cameras_osmo_nano.yaml` (the default `--camera`
   so markers near the image edge will be biased until a calibration replaces these numbers. The gripper-camera
   mount is nominal too: the Osmo Nano's lens is not where the GoPro dummy's is.
 
+## Head-camera motion (SLAM)
+`--state-source aruco` places the gripper in each episode's first head-camera frame, so it needs the head camera's
+motion. `--cam-motion hawor_slam` (the default) uses the same SLAM as h2r_collection: HaWoR's `hawor_slam`
+(masked DROID-SLAM + Metric3D metric scale), called unchanged by `collection/head_slam.py` in the HaWoR env. Per
+episode it writes the head frames at the dataset-row timestamps, masks the gripper CAD and a hand/forearm stand-in at
+each row's ArUco pose (dilated 25 px; the markers are the strongest features in view, so SLAM must not track
+them), runs SLAM, and caches one camera pose per row under `<out>/../slam_cache/`.
+
+Needs a h2r_collection checkout with HaWoR and its weights (`HAWOR_REPO`, default `../h2r_collection/HaWoR` next
+to this repo), the HaWoR conda env (`HAWOR_PYTHON`, default `~/anaconda3/envs/hawor/bin/python`) and a GPU. About
+25–35 s per 6 s episode here. DROID-SLAM is BSD-3 and Metric3D BSD-2; HaWoR's wrapper is CC BY-NC-ND, used
+unmodified and not vendored.
+
+Results on the rendered capture (Osmo Nano intrinsics, textured room; `sim/check_slam.py`):
+
+| episode | head camera vs truth, median / max | rotation, median / max | Metric3D scale off by | TCP vs truth, median / p90 (SLAM + ArUco, before EMA) |
+|---|---|---|---|---|
+| pick-and-place | 4.0 / 7.3 mm | 0.03 / 0.08° | 15 % | 5.3 / 9.3 mm |
+| wrist roll | 4.0 / 8.1 mm | 0.05 / 0.11° | 22 % | 4.3 / 7.4 mm |
+| put back | 1.9 / 4.0 mm | 0.03 / 0.07° | 8 % | 3.3 / 8.3 mm |
+
+- With the true head motion instead, the TCP error is 1.3–2.9 mm median: SLAM adds about 2–3 mm, mostly through
+  Metric3D's scale.
+- **Mask:** without it the head-camera error grows to 4.1–5.7 mm median and up to 23.5 mm, the worst rotation to
+  0.52°, and the TCP median to 4.8–5.9 mm. The gripper covers ~4 % of the sim frame; a real hand and forearm cover
+  more, so the mask matters more on real footage.
+- **Texture:** in the earlier plain-coloured sim room SLAM failed (Metric3D scale 3.9× off, 13 mm per-frame jitter,
+  TCP 37 mm median). Real rooms have texture; a bare white workspace would not.
+
 ## Data layout
 Everything lives under the data root, `<repo>/data` by default or `--data-root` / `EGOUMI_DATA_ROOT`
 (for example an external SSD).
@@ -67,7 +96,7 @@ Camera keys: `observation.images.{head,wrist_left,wrist_right}` (identical to h2
 |---|---|---|
 | `none` (default) | absent: video-only dataset | viewing, visual pre-training, checking cuts and sync |
 | `zeros` | 14-d zeros in the h2r_collection layout (`left/right.eef.{x,y,z,roll,pitch,yaw}`, `left/right.gripper`), `info.json → egoumi.state_placeholder: true` | smoke-testing training code only; **never train on it** |
-| `aruco` | right gripper TCP pose reconstructed from the **head clips** with the ArUco pipeline (`umi_pipe.pose`); `right.gripper` from the jaw tags seen by the **gripper (wrist) camera** (head-camera jaw sightings as a fallback), interpolated across frames without one; left arm zero. Causal EMA α 0.18 on position (`--ema-pos`) and on orientation (`--ema-rot`, filtered on SO(3) so the ±π wrap cannot break it; defaults to the position α so the whole pose has one lag), none on the gripper (`--ema-grip 1.0`); see below for how α was chosen. Head-camera motion comes from `--cam-motion` (only `sim_gt` for now: SLAM is not wired). With `--sim-gt` the same dataset also gets **`observation.state_gt` / `action_gt`**, the ground truth in the same frame and layout | testing reconstruction against ground truth; real captures once SLAM is in |
+| `aruco` | right gripper TCP pose reconstructed from the **head clips** with the ArUco pipeline (`umi_pipe.pose`); `right.gripper` from the jaw tags seen by the **gripper (wrist) camera** (head-camera jaw sightings as a fallback), interpolated across frames without one; left arm zero. Causal EMA α 0.18 on position (`--ema-pos`) and on orientation (`--ema-rot`, filtered on SO(3) so the ±π wrap cannot break it; defaults to the position α so the whole pose has one lag), none on the gripper (`--ema-grip 1.0`); see below for how α was chosen. Head-camera motion: `--cam-motion hawor_slam` (default; HaWoR's masked DROID-SLAM + Metric3D, see *Head-camera motion* below), `sim_gt` (sim ground truth) or `none`. With `--sim-gt` the same dataset also gets **`observation.state_gt` / `action_gt`**, the ground truth in the same frame and layout | testing reconstruction against ground truth; real captures once SLAM is in |
 | `sim_gt` | the sim ground truth only (`sim/render_capture.py` sessions) | testing the trajectory plumbing |
 
 - Episode length = the shortest camera clip at `--fps` (floor), so every camera has exactly one frame per row.
@@ -115,7 +144,7 @@ h2r_collection's converter. `convert_to_lerobot.py`, `state_sources.py` and `run
   `creation_time` to whole seconds only, so metadata alone was off by 183 ms and 1,567 ms: the claps matter.
 - Every clip matches the raw recording frame-exactly at both ends (`sim/check_capture_sync.py`); the blank feed
   stays blank; 525 frames load in LeRobot 0.4.1 with both the PyAV and torchcodec backends.
-- Trajectory test (`run_pipeline.py --skip-tag --state-source aruco --sim-gt ... --camera ...`; egocentric head
+- Trajectory test with the TRUE head motion (`run_pipeline.py --skip-tag --state-source aruco --sim-gt ... --camera ... --cam-motion sim_gt`; egocentric head
   camera, gripper camera pitched 15° down): one dataset with both `observation.state` (predicted) and
   `observation.state_gt` (raw ground truth). Pose on 100 % of frames; gripper from the wrist camera on 100 %, within
   1.1 mm of jaw width. Before the EMA, with the h2r Osmo Nano intrinsics at 1080p (600 px): TCP error median

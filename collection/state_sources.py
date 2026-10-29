@@ -243,8 +243,9 @@ class ArucoSource(_GripperBase):
     """Gripper pose reconstructed from the HEAD clip with the ArUco pipeline (umi_pipe.pose)."""
     name = "aruco"
 
-    def __init__(self, cut_sheet=None, sim_gt=None, camera=None, markers=None, cam_motion="sim_gt",
-                 max_gap=5, ema_pos=0.18, ema_grip=1.0, ema_rot=None, **kw):
+    def __init__(self, cut_sheet=None, sim_gt=None, camera=None, markers=None, cam_motion="hawor_slam",
+                 max_gap=5, ema_pos=0.18, ema_grip=1.0, ema_rot=None, slam_cache=None, hawor_python=None,
+                 hawor_repo=None, slam_mask=True, slam_dilate=25, **kw):
         super().__init__(cut_sheet=cut_sheet, sim_gt=sim_gt)
         _repo_imports()
         import yaml
@@ -263,8 +264,21 @@ class ArucoSource(_GripperBase):
             self.wrist = {"cam": wr, "T_cam_body": inv(np.asarray(wr["T_body_cam"], float))}
         self.model = GripperModel(markers or MARKER_CFG)
         self.P = P
+        if cam_motion not in ("hawor_slam", "sim_gt", "none"):
+            raise ValueError(f"unknown cam_motion {cam_motion!r}: hawor_slam | sim_gt | none")
         self.cam_motion = cam_motion
         self.max_gap = max_gap
+        # head-camera motion from HaWoR's SLAM (collection/head_slam.py, run in the HaWoR env)
+        import os
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        self.camera_path, self.markers_path = os.path.abspath(camera), markers
+        self.slam = {"cache": slam_cache or os.path.join(root, "data", "slam_cache"),
+                     "python": hawor_python or os.environ.get(
+                         "HAWOR_PYTHON", os.path.expanduser("~/anaconda3/envs/hawor/bin/python")),
+                     "repo": hawor_repo or os.environ.get(
+                         "HAWOR_REPO", os.path.join(os.path.dirname(root), "h2r_collection", "HaWoR")),
+                     "mask": bool(slam_mask), "dilate": int(slam_dilate)}
+        self.slam_info: Dict = {}
         # h2r criterion (sim/ema_sweep.py): least smoothing whose one-step delta noise reaches the G1 FK level ->
         # position 0.18 (h2r kitting used 0.164 for HaWoR); the wrist-camera gripper is clean, so no gripper EMA
         self.ema_pos = 1.0 if ema_pos is None else float(ema_pos)
@@ -276,10 +290,6 @@ class ArucoSource(_GripperBase):
         import cv2
         from umi_pipe.geometry import pose_error
         idx = self._head_frames(episode, n, fps)
-        if self.cam_motion != "sim_gt":
-            raise ValueError(f"cam_motion {self.cam_motion!r} not implemented (SLAM is not wired yet)")
-        T_wc = self._gt_world_cam(idx)
-
         det = self.P.make_detector(self.model)
         T_cam_body = np.tile(np.eye(4), (n, 1, 1)); src = np.zeros(n, int)
         travel = np.full(n, np.nan); n_tags = np.zeros(n, int); T_prev = None; K = None
@@ -305,6 +315,15 @@ class ArucoSource(_GripperBase):
                 if tr:
                     travel_wrist[k] = np.mean([v[0] for v in tr.values()])
             travel = np.where(np.isfinite(travel_wrist), travel_wrist, travel_head)
+
+        # head-camera motion (world = the episode's first head-camera frame either way)
+        T_wc_gt = self._gt_world_cam(idx) if self._gt is not None else None
+        if self.cam_motion == "sim_gt":
+            T_wc = T_wc_gt if T_wc_gt is not None else self._gt_world_cam(idx)
+        elif self.cam_motion == "hawor_slam":
+            T_wc = self._slam_cameras(episode, n, fps, T_cam_body, src > 0)
+        else:   # none: every row in its own camera frame (no world frame; flagged in info.json)
+            T_wc = np.tile(np.eye(4), (n, 1, 1))
 
         # pose in the episode frame, gaps <= max_gap interpolated, longer gaps held (and reported)
         T_c0_tcp = inv_batch(T_wc[:1])[0] @ T_wc @ T_cam_body @ self.model.T_body_tcp
@@ -337,7 +356,7 @@ class ArucoSource(_GripperBase):
                              "gripper_from_head_only_pct": round(float((np.isfinite(travel_head) &
                                                                         ~np.isfinite(travel_wrist)).mean() * 100), 1)}
         if self._gt is not None:   # score against the sim ground truth in the same frame, and ship it as a tag
-            G = inv_batch(T_wc[:1])[0] @ self._gt["T_world_tcp"][idx]
+            G = inv_batch(T_wc_gt[:1])[0] @ self._gt["T_world_tcp"][idx]     # GT in the GT first head frame
             gt_state = _pose_rows(G, np.clip(1.0 - self._gt["width"][idx] / self.model.width_open, 0.0, 1.0))
             self.extra = {"observation.state_gt": gt_state, "action_gt": derive_action_from_state(gt_state)}
             e = np.array([pose_error(a, b) for a, b in zip(T_c0_tcp, G)])
@@ -345,6 +364,17 @@ class ArucoSource(_GripperBase):
                                       "vs_gt_pos_mm_p90": round(float(np.percentile(e[:, 0], 90) * 1000), 2),
                                       "vs_gt_rot_deg_median": round(float(np.median(e[:, 1])), 3),
                                       "vs_gt_pos_mm_max": round(float(e[:, 0].max() * 1000), 2)})
+            if self.cam_motion == "hawor_slam":   # score the head-camera trajectory itself
+                Cs, Cg = inv_batch(T_wc[:1])[0] @ T_wc, inv_batch(T_wc_gt[:1])[0] @ T_wc_gt
+                ce = np.array([pose_error(a, b) for a, b in zip(Cs, Cg)])
+                path = lambda C: np.linalg.norm(np.diff(C[:, :3, 3], axis=0), axis=1).sum()
+                self.episode_info.update({
+                    "slam_cam_pos_mm_median": round(float(np.median(ce[:, 0]) * 1000), 2),
+                    "slam_cam_pos_mm_max": round(float(ce[:, 0].max() * 1000), 2),
+                    "slam_cam_rot_deg_end": round(float(ce[-1, 1]), 3),
+                    "slam_cam_rot_deg_max": round(float(ce[:, 1].max()), 3),
+                    "slam_path_ratio": round(float(path(Cs) / max(path(Cg), 1e-9)), 3)})
+        self.episode_info.update(self.slam_info)
         # causal EMA on the PREDICTED pose (the GT tags stay raw): orientation on SO(3) before it becomes Euler angles,
         # position and gripper per component
         T_f = T_c0_tcp.copy()
@@ -361,6 +391,44 @@ class ArucoSource(_GripperBase):
                                       "vs_gt_rot_deg_median_after_ema": round(float(np.median(r2)), 3),
                                       "vs_gt_rot_deg_max_after_ema": round(float(r2.max()), 3)})
         return state, derive_action_from_state(state)
+
+    def _slam_cameras(self, episode, n: int, fps: float, T_cam_body: np.ndarray, valid: np.ndarray) -> np.ndarray:
+        """Head-camera camera-to-world per row from HaWoR's SLAM (collection/head_slam.py in the HaWoR env).
+        Cached per clip content + rows + mask settings under slam_cache/."""
+        import os, json, subprocess, hashlib
+        from episodes import video_hash
+        clip = episode.clips["head"]
+        key = hashlib.sha1(f"{video_hash(clip)}|{n}|{fps}|{self.slam['mask']}|{self.slam['dilate']}".encode()
+                           ).hexdigest()[:16]
+        work = os.path.join(self.slam["cache"], f"{episode.name}_{key}")
+        out = os.path.join(work, "cameras.npz")
+        if not os.path.isfile(out):
+            os.makedirs(work, exist_ok=True)
+            poses = os.path.join(work, "aruco_poses.npz")
+            np.savez(poses, T_cam_body=T_cam_body, valid=valid)
+            here = os.path.dirname(os.path.abspath(__file__))
+            cmd = [self.slam["python"], os.path.join(here, "head_slam.py"), "--head-clip", str(clip),
+                   "--rows", str(n), "--fps", str(fps), "--poses", poses, "--camera", self.camera_path,
+                   "--work", work, "--out", out, "--hawor-repo", self.slam["repo"], "--dilate", str(self.slam["dilate"])]
+            if self.markers_path:
+                cmd += ["--markers", self.markers_path]
+            if not self.slam["mask"]:
+                cmd.append("--no-mask")
+            env = dict(os.environ); env.setdefault("PYOPENGL_PLATFORM", "egl")
+            print(f"  [SLAM] HaWoR masked DROID-SLAM + Metric3D on {os.path.basename(str(clip))} ({n} rows) ...")
+            proc = subprocess.run(cmd, env=env, capture_output=True, text=True)
+            if proc.returncode != 0 or not os.path.isfile(out):
+                tail = "\n".join((proc.stdout + proc.stderr).strip().splitlines()[-15:])
+                raise RuntimeError(f"head_slam.py failed (exit {proc.returncode}):\n{tail}")
+        else:
+            print(f"  [SLAM] cache hit ({os.path.relpath(out, self.slam['cache'])})")
+        z = np.load(out)
+        T = z["T_world_cam"]
+        if len(T) < n:                     # head clip ran short: hold the last pose
+            T = np.concatenate([T, np.repeat(T[-1:], n - len(T), axis=0)])
+        self.slam_info = {"slam_scale": round(float(z["scale"]), 4), "slam_mask_frac": round(float(z["mask_frac"]), 4),
+                          "slam_seconds": round(float(z["seconds"]), 1), "slam_masked": bool(z["masked"])}
+        return T[:n]
 
     @property
     def extra_keys(self) -> List[str]:
@@ -385,8 +453,10 @@ class ArucoSource(_GripperBase):
                                 "episode's first head-camera optical frame; eef frame as h2r_collection (+z approach = "
                                 "body +Y, +y jaw axis toward the thumb side = body -X, +x = body -Z); intrinsic-XYZ rpy. "
                                 "Head-camera motion: " +
-                                ("SIM GROUND TRUTH standing in for SLAM (not wired yet)." if self.cam_motion == "sim_gt"
-                                 else self.cam_motion) +
+                                {"hawor_slam": "HaWoR's SLAM (masked DROID-SLAM + Metric3D scale, as h2r_collection), "
+                                               "masking the gripper + hand at their ArUco pose.",
+                                 "sim_gt": "SIM GROUND TRUTH standing in for SLAM.",
+                                 "none": "NONE: each row is in its own head-camera frame (no world frame)."}[self.cam_motion] +
                                 " right.gripper = 1 - width/width_open from the jaw tags, seen by the gripper (wrist) camera "
                                 "when its mount is known (head camera as fallback), interpolated across frames without a "
                                 "jaw tag (meta/egoumi_episodes.json gripper_measured_pct), 0 if never seen in an episode. Left arm absent: left.* = 0."}

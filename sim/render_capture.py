@@ -232,10 +232,7 @@ def main():
     S = Scene3D(W * ss, H * ss, bg=(0.58, 0.59, 0.61, 1.0))   # room grey beyond the wall/floor
     S.add_light((0.3, -0.4, -1.0), 3.0); S.add_light((-0.5, 0.6, -0.6), 1.0)
     S.add_table(model)
-    floor = trimesh.creation.box(extents=[4, 4, 0.01]); floor.apply_translation([0, 0, -0.75])
-    S.add_mesh(floor, (0.45, 0.43, 0.40, 1.0))
-    wall = trimesh.creation.box(extents=[4, 0.01, 3]); wall.apply_translation([0, 1.2, 0.5])
-    S.add_mesh(wall, (0.62, 0.64, 0.66, 1.0))
+    S.add_room()                       # textured floor + walls (texture for SLAM)
     obj_node = S.add_mesh(trimesh.creation.box(extents=[OBJ] * 3), (0.75, 0.15, 0.12, 1.0))
     S.add_gripper("g", model, with_hand=True)
     T_tcp_body = inv(model.T_body_tcp)

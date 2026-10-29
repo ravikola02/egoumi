@@ -65,6 +65,8 @@ def main(argv=None) -> int:
     p.add_argument("--ema-pos", help="passed to the converter (aruco position EMA alpha, default 0.18)")
     p.add_argument("--ema-grip", help="passed to the converter (aruco gripper EMA alpha, default 1.0 = off)")
     p.add_argument("--ema-rot", help="passed to the converter (aruco orientation EMA alpha, default = --ema-pos)")
+    p.add_argument("--cam-motion", help="passed to the converter (aruco: hawor_slam (default) | sim_gt | none)")
+    p.add_argument("--no-slam-mask", action="store_true", help="passed to the converter (SLAM without the mask)")
     p.add_argument("--fps", default="auto", help="auto = the slowest camera's rate, rounded to an integer")
     p.add_argument("--image-size", default="1280x720")
     p.add_argument("--skip-tag", action="store_true", help="reuse the existing cut sheet + clips")
@@ -118,9 +120,11 @@ def main(argv=None) -> int:
            "--state-source", args.state_source, "--fps", str(args.fps), "--image-size", args.image_size]
     if args.overwrite:
         cmd.append("--overwrite")
-    for flag in ("sim_gt", "camera", "markers", "ema_pos", "ema_grip", "ema_rot"):
+    for flag in ("sim_gt", "camera", "markers", "ema_pos", "ema_grip", "ema_rot", "cam_motion"):
         if getattr(args, flag):
             cmd += [f"--{flag.replace('_', '-')}", getattr(args, flag)]
+    if args.no_slam_mask:
+        cmd.append("--no-slam-mask")
     print(f"[stage 2] converter -> {' '.join(cmd)}")
     rc = subprocess.call(cmd, cwd=str(REPO_ROOT), env=env)
     print("\nDone.  Dataset at:", out) if rc == 0 else print(f"\nConverter exited with status {rc}")
