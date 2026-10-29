@@ -104,6 +104,9 @@ def main(argv=None) -> int:
     p.add_argument("--ema-grip", type=float, default=1.0,
                    help="aruco: causal EMA alpha on the predicted gripper value (default 1.0 = off: the wrist-camera "
                         "width is already clean; h2r_collection used 0.3 for MANO)")
+    p.add_argument("--ema-rot", type=float, default=None,
+                   help="aruco: causal EMA alpha on the predicted orientation, applied on SO(3) (default: same as "
+                        "--ema-pos, so the whole pose has one lag; 1.0 = off)")
     p.add_argument("--fps", default="auto",
                    help="dataset + video fps; auto = the head clips' own rate (default; v30 needs an integer)")
     p.add_argument("--image-size", default="1280x720", help="WxH of the encoded camera streams")
@@ -121,7 +124,7 @@ def main(argv=None) -> int:
     size = parse_size(args.image_size)
     source = get_source(args.state_source, cut_sheet=cut_sheet, sim_gt=args.sim_gt, camera=args.camera,
                         markers=args.markers, cam_motion=args.cam_motion, ema_pos=args.ema_pos,
-                        ema_grip=args.ema_grip)
+                        ema_grip=args.ema_grip, ema_rot=args.ema_rot)
     session_id = args.session_id or cut_sheet.parent.name
 
     episodes = load_episodes(cut_sheet, clips_dir)

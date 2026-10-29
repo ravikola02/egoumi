@@ -48,7 +48,7 @@ Camera keys: `observation.images.{head,wrist_left,wrist_right}` (identical to h2
 |---|---|---|
 | `none` (default) | absent: video-only dataset | viewing, visual pre-training, checking cuts and sync |
 | `zeros` | 14-d zeros in the h2r_collection layout (`left/right.eef.{x,y,z,roll,pitch,yaw}`, `left/right.gripper`), `info.json → egoumi.state_placeholder: true` | smoke-testing training code only; **never train on it** |
-| `aruco` | right gripper TCP pose reconstructed from the **head clips** with the ArUco pipeline (`umi_pipe.pose`); `right.gripper` from the jaw tags seen by the **gripper (wrist) camera** (head-camera jaw sightings as a fallback), interpolated across frames without one; left arm zero. Causal EMA α 0.18 on position (`--ema-pos`), none on the gripper (`--ema-grip 1.0`), orientation unfiltered; see below for how α was chosen. Head-camera motion comes from `--cam-motion` (only `sim_gt` for now: SLAM is not wired). With `--sim-gt` the same dataset also gets **`observation.state_gt` / `action_gt`**, the ground truth in the same frame and layout | testing reconstruction against ground truth; real captures once SLAM is in |
+| `aruco` | right gripper TCP pose reconstructed from the **head clips** with the ArUco pipeline (`umi_pipe.pose`); `right.gripper` from the jaw tags seen by the **gripper (wrist) camera** (head-camera jaw sightings as a fallback), interpolated across frames without one; left arm zero. Causal EMA α 0.18 on position (`--ema-pos`) and on orientation (`--ema-rot`, filtered on SO(3) so the ±π wrap cannot break it; defaults to the position α so the whole pose has one lag), none on the gripper (`--ema-grip 1.0`); see below for how α was chosen. Head-camera motion comes from `--cam-motion` (only `sim_gt` for now: SLAM is not wired). With `--sim-gt` the same dataset also gets **`observation.state_gt` / `action_gt`**, the ground truth in the same frame and layout | testing reconstruction against ground truth; real captures once SLAM is in |
 | `sim_gt` | the sim ground truth only (`sim/render_capture.py` sessions) | testing the trajectory plumbing |
 
 - Episode length = the shortest camera clip at `--fps` (floor), so every camera has exactly one frame per row.
@@ -113,6 +113,14 @@ h2r_collection's converter. `convert_to_lerobot.py`, `state_sources.py` and `run
   | 0.2 | 133 ms | 0.72 mm | 14.9 mm |
   | **0.18 (default)** | **152 ms** | **0.65 mm** | **16.5 mm** |
   | 0.164 (h2r kitting) | 170 ms | 0.59 mm | 18.4 mm |
+
+  Orientation uses the same α (one lag for the whole pose), filtered on SO(3):
+
+  | orientation α | lag | 1-step delta noise | noise vs equally filtered GT, median / max | error vs raw GT, median |
+  |---|---|---|---|---|
+  | 1.0 (off) | 0 ms | 0.76° | 0.21 / 4.0° | 0.21° |
+  | 0.3 | 78 ms | 0.19° | 0.15 / 2.1° | 1.5° |
+  | **0.18 (default)** | **152 ms** | **0.11°** | **0.15 / 1.6°** | **2.9°** |
 
   The EMA does little for the per-frame error itself: that is slow bias from single-tag stretches, not jitter. The
   gripper needs no EMA: the wrist-camera width is already clean (median error 0.00 mm), and α 0.3 would only add lag

@@ -118,6 +118,22 @@ def ema(x: np.ndarray, alpha: float) -> np.ndarray:
     return y
 
 
+def ema_rot(Rs: np.ndarray, alpha: float) -> np.ndarray:
+    """Causal EMA on rotations (N, 3, 3), done on SO(3) so Euler wraps cannot break it:
+    R_f[0] = R[0]; R_f[t] = R_f[t-1] * exp(alpha * log(R_f[t-1]^T R[t])), i.e. move alpha of the way (geodesic slerp)
+    from the previous filtered rotation toward the new one. Same lag as ema() at the same alpha."""
+    from scipy.spatial.transform import Rotation as R
+    Rs = np.asarray(Rs, np.float64)
+    if alpha >= 1.0 or len(Rs) < 2:
+        return Rs.copy()
+    out = np.empty_like(Rs)
+    out[0] = Rs[0]
+    for t in range(1, len(Rs)):
+        step = R.from_matrix(out[t - 1].T @ Rs[t]).as_rotvec() * alpha
+        out[t] = out[t - 1] @ R.from_rotvec(step).as_matrix()
+    return out
+
+
 def _repo_imports():
     import os, sys
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -200,7 +216,7 @@ class ArucoSource(_GripperBase):
     name = "aruco"
 
     def __init__(self, cut_sheet=None, sim_gt=None, camera=None, markers=None, cam_motion="sim_gt",
-                 max_gap=5, ema_pos=0.18, ema_grip=1.0, **kw):
+                 max_gap=5, ema_pos=0.18, ema_grip=1.0, ema_rot=None, **kw):
         super().__init__(cut_sheet=cut_sheet, sim_gt=sim_gt)
         _repo_imports()
         import yaml
@@ -229,6 +245,8 @@ class ArucoSource(_GripperBase):
         # position 0.18 (h2r kitting used 0.164 for HaWoR); the wrist-camera gripper is clean, so no gripper EMA
         self.ema_pos = 1.0 if ema_pos is None else float(ema_pos)
         self.ema_grip = 1.0 if ema_grip is None else float(ema_grip)
+        # orientation: same alpha as position by default, so the whole pose carries one lag
+        self.ema_rot = self.ema_pos if ema_rot is None else float(ema_rot)
 
     def compute(self, episode, n: int, fps: float):
         import cv2
@@ -309,15 +327,21 @@ class ArucoSource(_GripperBase):
                                       "vs_gt_pos_mm_p90": round(float(np.percentile(e[:, 0], 90) * 1000), 2),
                                       "vs_gt_rot_deg_median": round(float(np.median(e[:, 1])), 3),
                                       "vs_gt_pos_mm_max": round(float(e[:, 0].max() * 1000), 2)})
-        state = _pose_rows(T_c0_tcp, grip)
-        # causal EMA on the PREDICTED position + gripper only (orientation wraps at +-pi; the GT tags stay raw)
+        # causal EMA on the PREDICTED pose (the GT tags stay raw): orientation on SO(3) before it becomes Euler angles,
+        # position and gripper per component
+        T_f = T_c0_tcp.copy()
+        T_f[:, :3, :3] = ema_rot(T_c0_tcp[:, :3, :3], self.ema_rot)
+        state = _pose_rows(T_f, grip)
         state[:, 6:9] = ema(state[:, 6:9], self.ema_pos)
         state[:, 13] = ema(state[:, 13], self.ema_grip)
         if self._gt is not None:
             e2 = np.linalg.norm(state[:, 6:9] - gt_state[:, 6:9], axis=1) * 1000
+            r2 = np.array([pose_error(a, b)[1] for a, b in zip(T_f, G)])
             self.episode_info.update({"vs_gt_pos_mm_median_after_ema": round(float(np.median(e2)), 2),
                                       "vs_gt_pos_mm_p90_after_ema": round(float(np.percentile(e2, 90)), 2),
-                                      "vs_gt_pos_mm_max_after_ema": round(float(e2.max()), 2)})
+                                      "vs_gt_pos_mm_max_after_ema": round(float(e2.max()), 2),
+                                      "vs_gt_rot_deg_median_after_ema": round(float(np.median(r2)), 3),
+                                      "vs_gt_rot_deg_max_after_ema": round(float(r2.max()), 3)})
         return state, derive_action_from_state(state)
 
     @property
@@ -327,7 +351,10 @@ class ArucoSource(_GripperBase):
     def info(self) -> Dict:
         return {"state_source": self.name, "state_placeholder": False, "state_layout": H2R_14D_LAYOUT,
                 "camera_motion": self.cam_motion,
-                "ema": {"position_alpha": self.ema_pos, "gripper_alpha": self.ema_grip, "orientation": "not filtered",
+                "ema": {"position_alpha": self.ema_pos, "gripper_alpha": self.ema_grip,
+                        "orientation_alpha": self.ema_rot,
+                        "orientation": "filtered on SO(3) (geodesic slerp toward each new rotation), before conversion "
+                                       "to Euler angles, so the +-pi wrap cannot break it",
                         "applies_to": "observation.state / action only (ground-truth columns are raw)",
                         "lag_frames_position": round((1 - self.ema_pos) / self.ema_pos, 2) if self.ema_pos < 1 else 0.0,
                         "note": "causal, reset per episode; the filtered state lags the unshifted videos. Inference must "
