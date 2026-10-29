@@ -1,9 +1,5 @@
 # EgoUMI: UMI pinch gripper + ArUco head-camera tracking
 
-**The gripper design is adapted from Stanford's [Universal Manipulation Interface (UMI)](https://umi-gripper.github.io/)**
-(Chi et al., RSS 2024): its CAD, mechanism and soft fingers are kept, the trigger is replaced by a thumb + index
-pinch, and the side mirrors are removed to make room for ArUco markers.
-
 > 🚧 **Work in progress.** The hardware is designed but not yet printed or fit-tested. The gripper tracking has been
 > tested **only in simulation**; the capture → LeRobot pipeline has also run on real 3-camera footage, without
 > gripper poses. Expect breaking changes.
@@ -119,8 +115,10 @@ assets/         README media
 ```
 
 ## Credits and licence
-- Gripper mechanism and base CAD: [Universal Manipulation Interface](https://umi-gripper.github.io/) (Chi et al.,
-  Stanford). The files in `cad/input/` are their design exported from Onshape; their terms apply to that design.
+- The gripper design is adapted from Stanford's [Universal Manipulation Interface (UMI)](https://umi-gripper.github.io/)
+  (Chi et al., RSS 2024): its CAD, mechanism and soft fingers are kept, the trigger is replaced by a thumb + index
+  pinch, and the side mirrors are removed to make room for ArUco markers. The files in `cad/input/` are their
+  design exported from Onshape; their terms apply to that design.
 - Data pipeline: [h2r_collection](https://github.com/ravikola02/h2r_collection); `collection/` vendors its sync,
   tagger and dataset writers. h2r_collection uses
   [HaWoR](https://github.com/ThunderVVV/HaWoR) (CC BY-NC-ND).
