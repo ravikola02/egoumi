@@ -28,12 +28,15 @@ Output: `sim/episodes/<name>/preview/gripper_preview.mp4`, `metrics.json` and `t
 table-tag pose (needs a table tag; the sim no longer renders one: `Scene3D.add_table(tag=True)` puts it back).
 
 ## Results (2026-10-28, sim, f = 1050 px, gripper and markers as in the CAD)
-Head camera: the egocentric view behind and above the user's hands (`--head 0.0,-0.42,0.58 --look 0.0,0.12,0.0`).
+Head camera: the egocentric view behind and above the user's hands (`--head 0.0,-0.42,0.58 --look 0.0,0.12,0.0`),
+with the h2r_collection DJI Osmo Nano intrinsics at 1080p (600 px; `configs/camera_sim.yaml`). With the earlier
+1050 px camera the same episodes gave 1.7 / 6.1 / 16.2 and 0.60 / 0.98 / 1.8 mm: the wider lens makes markers
+about 43 % smaller in pixels, so more frames see a single body tag.
 
 | Episode | TCP median / p90 / max [mm] | rot median [deg] | jaw width from the head camera | width err median / max [mm] | single-tag frames |
 |---|---|---|---|---|---|
-| pick_place | 1.7 / 6.1 / 16.2 | 0.31 | 21 % of frames | 0.00 / 0.44 | 25 % |
-| roll | 0.60 / 0.98 / 1.8 | 0.07 | 73 % | 0.21 / 0.94 | 1 % |
+| pick_place | 2.7 / 6.1 / 15.0 | 0.47 | 10 % of frames | 0.20 / 0.66 | 41 % |
+| roll | 1.6 / 2.6 / 5.1 | 0.21 | 8 % | 0.23 / 0.48 | 6 % |
 
 Jaw width is meant to come from the **gripper (wrist) camera**, as in UMI: it is rigid to the gripper, so each jaw
 tag only slides along its rail in that view. `render_capture.py` renders that camera at the GoPro lens, pitched
@@ -44,8 +47,9 @@ the head camera's jaw sightings only as a fallback.
 
 Findings:
 - From the egocentric head view the GoPro and the cube block the holder-top jaw tags at level poses, and they face
-  away in top-down grasps; the head sees them in 21–73 % of frames. The wrist camera sees them in every frame.
-- Single-tag frames (cube rear only, 25 % of pick_place) cause the large TCP errors: the TCP is about 290 mm from
+  away in top-down grasps; the head sees them in 8–10 % of frames at 1080p (21–73 % with the earlier 1050 px camera).
+  The wrist camera sees them in every frame.
+- Single-tag frames (cube rear only, 41 % of pick_place at 1080p) cause the large TCP errors: the TCP is about 290 mm from
   the cube, so about 1° at the tags becomes about 5 mm at the fingertips.
 - Coplanar body tags (only the two top-cover tags in view) have a two-fold planar ambiguity; `estimate_body` also
   scores both IPPE solutions.

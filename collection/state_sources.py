@@ -134,6 +134,34 @@ def ema_rot(Rs: np.ndarray, alpha: float) -> np.ndarray:
     return out
 
 
+def row_frames(path, n: int, fps: float):
+    """Yield (row, BGR frame) for dataset rows 0..n-1 at `fps`, taking the clip frame nearest each row's timestamp.
+    Clips keep their native rate (Osmo Nano head 59.94 fps vs a 30 fps dataset), so frame k is NOT row k."""
+    import cv2
+    cap = cv2.VideoCapture(str(path))
+    cfps = cap.get(cv2.CAP_PROP_FPS) or fps
+    want = np.round(np.arange(n) * cfps / fps).astype(int)
+    cur, img = -1, None
+    for k in range(n):
+        while cur < want[k]:
+            ok, img = cap.read()
+            if not ok:
+                cap.release()
+                return
+            cur += 1
+        yield k, img
+    cap.release()
+
+
+def scaled_K(cam: Dict, width: int, height: int):
+    """Intrinsics (K, dist) from a camera entry given at cam['width'] x cam['height'], rescaled to the clip's size
+    (pixel-centre convention: c' = (c + 0.5) * s - 0.5)."""
+    sx, sy = width / float(cam["width"]), height / float(cam["height"])
+    K = np.array([[cam["fx"] * sx, 0, (cam["cx"] + 0.5) * sx - 0.5],
+                  [0, cam["fy"] * sy, (cam["cy"] + 0.5) * sy - 0.5], [0, 0, 1.0]])
+    return K, np.asarray(cam.get("dist", [0] * 5), float)
+
+
 def _repo_imports():
     import os, sys
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -225,18 +253,14 @@ class ArucoSource(_GripperBase):
         if camera is None:
             raise ValueError("state source 'aruco' needs --camera (head intrinsics yaml)")
         cams = yaml.safe_load(open(camera))
-        cam = cams.get("head", cams)
-        self.K = np.array([[cam["fx"], 0, cam["cx"]], [0, cam["fy"], cam["cy"]], [0, 0, 1.0]])
-        self.dist = np.asarray(cam.get("dist", [0] * 5), float)
+        self.head_cam = cams.get("head", cams)           # intrinsics at its width x height; rescaled per clip
         # gripper (wrist) camera: if its mount on the gripper is known, jaw width comes from it (UMI-style: the
         # camera is rigid to the body, so each jaw tag only slides along its rail in this view)
         wr = cams.get("wrist_right") if isinstance(cams, dict) else None
         self.wrist = None
         if wr and "T_body_cam" in wr:
             from umi_pipe.geometry import inv
-            self.wrist = {"K": np.array([[wr["fx"], 0, wr["cx"]], [0, wr["fy"], wr["cy"]], [0, 0, 1.0]]),
-                          "dist": np.asarray(wr.get("dist", [0] * 5), float),
-                          "T_cam_body": inv(np.asarray(wr["T_body_cam"], float))}
+            self.wrist = {"cam": wr, "T_cam_body": inv(np.asarray(wr["T_body_cam"], float))}
         self.model = GripperModel(markers or MARKER_CFG)
         self.P = P
         self.cam_motion = cam_motion
@@ -257,35 +281,29 @@ class ArucoSource(_GripperBase):
         T_wc = self._gt_world_cam(idx)
 
         det = self.P.make_detector(self.model)
-        cap = cv2.VideoCapture(str(episode.clips["head"]))
         T_cam_body = np.tile(np.eye(4), (n, 1, 1)); src = np.zeros(n, int)
-        travel = np.full(n, np.nan); n_tags = np.zeros(n, int); T_prev = None
-        for k in range(n):
-            ok, img = cap.read()
-            if not ok:
-                break
+        travel = np.full(n, np.nan); n_tags = np.zeros(n, int); T_prev = None; K = None
+        for k, img in row_frames(episode.clips["head"], n, fps):
+            if K is None:
+                K, dist = scaled_K(self.head_cam, img.shape[1], img.shape[0])
             dets = self.P.detect(det, img)
-            b = self.P.estimate_body(dets, self.model, self.K, self.dist, T_prev)
+            b = self.P.estimate_body(dets, self.model, K, dist, T_prev)
             if b is None:
                 continue
             T_cam_body[k] = T_prev = b["T_cam_body"]; src[k] = 1; n_tags[k] = len(b["ids"])
-            tr = self.P.estimate_travel(dets, self.model, self.K, self.dist, b["T_cam_body"])
+            tr = self.P.estimate_travel(dets, self.model, K, dist, b["T_cam_body"])
             if tr:
                 travel[k] = np.mean([v[0] for v in tr.values()])
-        cap.release()
         travel_head = travel.copy()
         travel_wrist = np.full(n, np.nan)
         if self.wrist is not None and "wrist_right" in episode.clips:
-            cap = cv2.VideoCapture(str(episode.clips["wrist_right"]))
-            for k in range(n):
-                ok, img = cap.read()
-                if not ok:
-                    break
-                tr = self.P.estimate_travel(self.P.detect(det, img), self.model, self.wrist["K"], self.wrist["dist"],
-                                            self.wrist["T_cam_body"])
+            Kw = None
+            for k, img in row_frames(episode.clips["wrist_right"], n, fps):
+                if Kw is None:
+                    Kw, dw = scaled_K(self.wrist["cam"], img.shape[1], img.shape[0])
+                tr = self.P.estimate_travel(self.P.detect(det, img), self.model, Kw, dw, self.wrist["T_cam_body"])
                 if tr:
                     travel_wrist[k] = np.mean([v[0] for v in tr.values()])
-            cap.release()
             travel = np.where(np.isfinite(travel_wrist), travel_wrist, travel_head)
 
         # pose in the episode frame, gaps <= max_gap interpolated, longer gaps held (and reported)

@@ -27,6 +27,25 @@ python3 collection/preview_clips.py --session <session>
 Needs Python ≥ 3.9 with `numpy`, `pandas` and `pyarrow`, plus a non-snap `ffmpeg`/`ffprobe` (the scripts put
 `/usr/bin` first on `PATH`: the snap build cannot read external drives and silently breaks the audio sync).
 
+## Cameras
+Recording settings and per-session checklist: [docs/recording_setup_osmo_nano.md](../docs/recording_setup_osmo_nano.md).
+
+The same setup as h2r_collection: **DJI Osmo Nano** (OW001) on the head and as the wrist cameras. The gripper camera
+is the right wrist feed, on the gripper's camera mount; the left wrist feed may be blank. Intrinsics are the ones
+h2r_collection used, in `configs/cameras_osmo_nano.yaml` (the default `--camera` for `--state-source aruco`):
+
+| | h2r recording modes | intrinsics |
+|---|---|---|
+| head | 1920×1080 @ 59.94 fps, or 3840×2160 10-bit @ 59.94 / 47.95 | HaWoR focal 600 px at 1920 wide (1200 px at 3840), principal point at the image centre, no distortion model |
+| wrist / gripper camera | 1920×1080 @ 29.97 fps | the same lens; gripper camera mount: nominal, at the GoPro-mount lens position, pitched 15° down |
+
+- Intrinsics are rescaled to each clip's resolution, and every dataset row takes the frame nearest its timestamp
+  from each camera's own rate, so a 59.94 fps head and 29.97 fps wrists line up on the 30 fps rows.
+- `--fps auto` uses the slowest camera, rounded to an integer (30 here), the rate h2r_collection resampled to.
+- **Unverified:** lens distortion. The Osmo Nano is a 12 mm-equivalent wide lens; HaWoR never modelled distortion,
+  so markers near the image edge will be biased until a calibration replaces these numbers. The gripper-camera
+  mount is nominal too: the Osmo Nano's lens is not where the GoPro dummy's is.
+
 ## Data layout
 Everything lives under the data root, `<repo>/data` by default or `--data-root` / `EGOUMI_DATA_ROOT`
 (for example an external SSD).

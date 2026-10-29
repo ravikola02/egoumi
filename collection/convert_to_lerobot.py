@@ -95,7 +95,9 @@ def main(argv=None) -> int:
                         "aruco = gripper pose reconstructed from the head clips")
     p.add_argument("--sim-gt", help="<session>/sim_gt of a sim/render_capture.py session (sim_gt source, aruco scoring "
                                     "and its head-camera motion)")
-    p.add_argument("--camera", help="head intrinsics yaml for --state-source aruco (sim: <session>/sim_gt/cameras.yaml)")
+    p.add_argument("--camera", help="camera intrinsics yaml for --state-source aruco (default: "
+                                    "configs/cameras_osmo_nano.yaml, the h2r_collection DJI Osmo Nano setup; "
+                                    "sim: <session>/sim_gt/cameras.yaml)")
     p.add_argument("--markers", help="marker layout yaml (default configs/gripper_markers.yaml)")
     p.add_argument("--cam-motion", default="sim_gt", help="head-camera motion for aruco: sim_gt (SLAM not wired yet)")
     p.add_argument("--ema-pos", type=float, default=0.18,
@@ -108,7 +110,8 @@ def main(argv=None) -> int:
                    help="aruco: causal EMA alpha on the predicted orientation, applied on SO(3) (default: same as "
                         "--ema-pos, so the whole pose has one lag; 1.0 = off)")
     p.add_argument("--fps", default="auto",
-                   help="dataset + video fps; auto = the head clips' own rate (default; v30 needs an integer)")
+                   help="dataset + video fps; auto (default) = the slowest camera's rate rounded to an integer "
+                        "(Osmo Nano head 59.94 + wrists 29.97 -> 30); faster cameras are resampled")
     p.add_argument("--image-size", default="1280x720", help="WxH of the encoded camera streams")
     p.add_argument("--session-id", help="recorded in info.json (default: cut-sheet parent dir name)")
     p.add_argument("--limit", type=int, help="process at most N episodes")
@@ -122,6 +125,9 @@ def main(argv=None) -> int:
         import shutil
         shutil.rmtree(out_root)
     size = parse_size(args.image_size)
+    if args.state_source == "aruco" and not args.camera:
+        args.camera = str(REPO_ROOT / "configs" / "cameras_osmo_nano.yaml")
+        print(f"  camera:   {args.camera} (h2r_collection DJI Osmo Nano intrinsics)")
     source = get_source(args.state_source, cut_sheet=cut_sheet, sim_gt=args.sim_gt, camera=args.camera,
                         markers=args.markers, cam_motion=args.cam_motion, ema_pos=args.ema_pos,
                         ema_grip=args.ema_grip, ema_rot=args.ema_rot)
@@ -132,10 +138,12 @@ def main(argv=None) -> int:
         episodes = episodes[: args.limit]
     roles = [r for r in ROLES if any(r in ep.clips for ep in episodes)]
     if args.fps == "auto":
-        rates = sorted({round(probe_fps(ep.head_clip), 3) for ep in episodes})
-        if len(rates) > 1:
-            print(f"WARN head clips have different frame rates {rates}; resampling all to {rates[0]:g}")
-        args.fps = rates[0]
+        # the slowest camera sets the dataset rate, rounded to an integer for LeRobot v3 (Osmo Nano: head 59.94,
+        # wrists 29.97 -> 30, the rate h2r_collection resampled to); faster cameras are resampled down by ffmpeg
+        rates = {round(probe_fps(p), 3) for ep in episodes for p in ep.clips.values()}
+        args.fps = int(round(min(rates)))
+        if len(rates) > 1 or args.fps != min(rates):
+            print(f"  fps auto: camera rates {sorted(rates)} -> {args.fps} fps")
     args.fps = float(args.fps)
     if args.dataset_version == "v30" and args.fps != int(args.fps):
         sys.exit(f"LeRobot v3.0 needs an integer fps, got {args.fps:g}; pass --fps")

@@ -1,0 +1,48 @@
+# Real cameras: the h2r_collection setup. Head and both wrist cameras are DJI Osmo Nano (model OW001).
+# Intrinsics are the ones h2r_collection used: HaWoR's focal 600 px at 1920 px width, principal point at the image
+# centre, no distortion model (an EXIF check of the same camera gives 611 px at 1920, so 600 is within ~2 %).
+# fx/fy/cx/cy are given at `width` x `height`; the pipeline rescales them to each clip's actual resolution
+# (e.g. a 3840x2160 head clip gets fx = 1200).
+# Unverified: lens distortion. The Osmo Nano is a 12 mm-equivalent wide lens and HaWoR never modelled distortion;
+# markers near the image edge will be biased until a calibration replaces these numbers.
+# h2r recording modes seen in data/raw: head 1920x1080 @59.94 (kitting) or 3840x2160 10-bit @59.94/47.95
+# (box_folding_1, flipping_1); wrists 1920x1080 @29.97.
+
+head:
+  model: DJI Osmo Nano
+  width: 1920
+  height: 1080
+  fx: 600.0
+  fy: 600.0
+  cx: 959.5
+  cy: 539.5
+  dist: [0.0, 0.0, 0.0, 0.0, 0.0]
+
+wrist_right:                      # the gripper camera (Osmo Nano on the gripper's camera mount)
+  model: DJI Osmo Nano
+  width: 1920
+  height: 1080
+  fx: 600.0
+  fy: 600.0
+  cx: 959.5
+  cy: 539.5
+  dist: [0.0, 0.0, 0.0, 0.0, 0.0]
+  # Mount on the gripper (body frame, metres): at the GoPro-mount lens position, looking along the fingers, pitched
+  # 15 deg down so both jaw tags are in view (sim/render_capture.py --wrist-tilt; the GoPro-style mount hinge sets
+  # the tilt). NOMINAL: the Osmo Nano's lens sits elsewhere than the GoPro dummy's; measure on the real mount.
+  tilt_deg: 15.0
+  T_body_cam:
+    - [1.0, 0.0, 0.0, 0.0]
+    - [0.0, -0.25881905, 0.96592583, 0.016]
+    - [0.0, -0.96592583, -0.25881905, 0.0834]
+    - [0.0, 0.0, 0.0, 1.0]
+
+wrist_left:                       # second wrist camera (blank in one-gripper captures)
+  model: DJI Osmo Nano
+  width: 1920
+  height: 1080
+  fx: 600.0
+  fy: 600.0
+  cx: 959.5
+  cy: 539.5
+  dist: [0.0, 0.0, 0.0, 0.0, 0.0]

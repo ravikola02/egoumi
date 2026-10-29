@@ -33,6 +33,11 @@ the default `--style debug` overlays the estimate on the frame with per-tag deta
 | `sim/render_capture.py`: rendered raw capture (head camera, gripper GoPro, blank second wrist feed, skewed clocks, clap soundtrack) + `sim/check_capture_sync.py` (sync and cut accuracy against ground truth) | working |
 | HaWoR SLAM for head-camera motion, camera calibration, real captures | planned |
 
+## Recording
+Cameras are DJI Osmo Nanos, as in h2r_collection (head + one on the gripper). Settings, mounts and the per-session
+checklist (4K head, stabilization off, landscape locked, a clap at the start of every take):
+[docs/recording_setup_osmo_nano.md](docs/recording_setup_osmo_nano.md).
+
 ## Printing the markers
 [`assets/print/egoumi_aruco_markers.pdf`](assets/print/egoumi_aruco_markers.pdf) holds all eight markers the pipeline
 uses (DICT_4X4_50, IDs 0–7) at exact size on one A4 page, with a back page that, printed double-sided, puts each
@@ -81,12 +86,13 @@ Set `PY=/path/to/python` if your interpreter is not the HaWoR conda env. `sim/as
 `sim/export_meshes.py` regenerates it from the STEP file (needs CadQuery).
 
 ## Sim results
-Egocentric head camera (behind and above the user's hands); gripper and markers as in the CAD.
+Egocentric head camera (behind and above the user's hands) with the h2r_collection DJI Osmo Nano intrinsics at
+1080p (600 px focal); gripper and markers as in the CAD. A 4K head (recommended) doubles the marker size in pixels.
 
 | Episode | TCP error median / p90 / max | Jaw width seen by the head camera |
 |---|---|---|
-| pick-and-place | 1.7 / 6.1 / 16.2 mm | 21 % of frames (width error median 0.00, max 0.44 mm) |
-| wrist roll | 0.60 / 0.98 / 1.8 mm | 73 % (median 0.21, max 0.94 mm) |
+| pick-and-place | 2.7 / 6.1 / 15.0 mm | 10 % of frames (width error median 0.20, max 0.66 mm) |
+| wrist roll | 1.6 / 2.6 / 5.1 mm | 8 % (median 0.23, max 0.48 mm) |
 
 Jaw width comes from the **gripper (wrist) camera**, as in UMI. In the render it sits at the GoPro lens, pitched
 down 15° so both jaw tags stay in its pinhole frame over the full travel; it sees both tags at every travel.

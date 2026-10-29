@@ -36,7 +36,7 @@ FFMPEG = "/usr/bin/ffmpeg" if os.path.isfile("/usr/bin/ffmpeg") else "ffmpeg"
 AUDIO_SR = 48000
 # GoPro dummy lens: front face of the lens housing at y = 14.5 mm, centred x 0, z ~83.4 mm (camera_dummy.stl).
 # Camera sits 1.5 mm in front of it looking along +Y (fingers); image right = body +X, image down = body -Z,
-# pitched down by --wrist-tilt so both jaw tags stay in the (pinhole, 120 deg) frame over the full travel. At 0 deg
+# pitched down by --wrist-tilt so both jaw tags stay in the (pinhole, Osmo Nano 600 px) frame over the full travel. At 0 deg
 # they fall just outside the bottom edge; a real GoPro's ~155 deg fisheye covers them without the tilt.
 WRISTCAM_LENS = [0.0, 0.016, 0.0834]
 
@@ -176,8 +176,10 @@ def main():
     ap.add_argument("--clock-skew", default="0.0,0.35,-0.6", help="creation_time error per camera [s]")
     ap.add_argument("--fps", type=int, default=30)
     ap.add_argument("--size", default="1920x1080")
-    ap.add_argument("--head-f", type=float, default=1050.0, help="head focal [px]")
-    ap.add_argument("--wrist-hfov", type=float, default=120.0, help="wrist camera horizontal FOV [deg] (pinhole)")
+    ap.add_argument("--head-f", type=float, default=600.0,
+                    help="head focal [px] at --size; 600 = DJI Osmo Nano at 1920 wide, as h2r_collection used")
+    ap.add_argument("--wrist-f", type=float, default=600.0,
+                    help="wrist (gripper) camera focal [px]; 600 = DJI Osmo Nano, 116 deg horizontal FOV")
     ap.add_argument("--wrist-tilt", type=float, default=15.0,
                     help="wrist camera pitch down [deg]; 15 keeps both jaw tags in view over the full travel")
     ap.add_argument("--supersample", type=int, default=2)
@@ -192,7 +194,7 @@ def main():
     rng = np.random.default_rng(a.seed)
     W, H = (int(v) for v in a.size.split("x")); ss = a.supersample
     K_head = np.array([[a.head_f, 0, (W - 1) / 2], [0, a.head_f, (H - 1) / 2], [0, 0, 1.0]])
-    fw = (W / 2) / np.tan(np.radians(a.wrist_hfov) / 2)
+    fw = a.wrist_f
     K_wrist = np.array([[fw, 0, (W - 1) / 2], [0, fw, (H - 1) / 2], [0, 0, 1.0]])
     starts = [float(v) for v in a.starts.split(",")]; tails = [float(v) for v in a.tails.split(",")]
     skew = [float(v) for v in a.clock_skew.split(",")]
@@ -306,7 +308,8 @@ def main():
     json.dump(gt, open(os.path.join(gt_dir, "gt.json"), "w"), indent=1)
     cams = {"head": {"width": W, "height": H, "fx": a.head_f, "fy": a.head_f, "cx": (W - 1) / 2, "cy": (H - 1) / 2},
             "wrist_right": {"width": W, "height": H, "fx": float(fw), "fy": float(fw), "cx": (W - 1) / 2,
-                            "cy": (H - 1) / 2, "T_body_cam": T_BODY_WRISTCAM.tolist(), "hfov_deg": a.wrist_hfov,
+                            "cy": (H - 1) / 2, "T_body_cam": T_BODY_WRISTCAM.tolist(),
+                            "hfov_deg": round(float(np.degrees(2 * np.arctan(W / 2 / fw))), 2),
                             "tilt_deg": a.wrist_tilt}}
     yaml.safe_dump(cams, open(os.path.join(gt_dir, "cameras.yaml"), "w"), sort_keys=False)
     print(f"session written to {a.out}; true offsets vs head {gt['true_offset_vs_head_s']}")
