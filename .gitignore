@@ -13,3 +13,5 @@ CLAUDE.md
 data/
 # Claude Code worktrees / local settings
 .claude/
+# local one-off print files (not part of the design)
+tmp_print/
