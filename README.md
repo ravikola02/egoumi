@@ -37,6 +37,20 @@ the default `--style debug` overlays the estimate on the frame with per-tag deta
 | `sim/render_capture.py`: rendered raw capture (head camera, gripper GoPro, blank second wrist feed, skewed clocks, clap soundtrack) + `sim/check_capture_sync.py` (sync and cut accuracy against ground truth) | working |
 | HaWoR SLAM for head-camera motion, camera calibration, real captures | planned |
 
+## Printing the markers
+[`assets/print/egoumi_aruco_markers.pdf`](assets/print/egoumi_aruco_markers.pdf) holds all eight markers the pipeline
+uses (DICT_4X4_50, IDs 0–7) at exact size on one A4 page, with a back page that, printed double-sided, puts each
+marker's placement (part, face and which edge is the top) directly behind it. Print at **100 % / Actual size**,
+**double-sided, flip on the long edge**, check the 100 mm bar, and cut along the dashed lines without trimming the
+white border. It is generated from `configs/gripper_markers.yaml`:
+`python3 scripts/make_marker_sheet.py` (add `--flip short` if your printer flips on the short edge).
+
+| IDs | Where | Marker | Cut size |
+|---|---|---|---|
+| 0–3 | cube: rear, top, left, right faces | 60 mm | 70 mm (whole face) |
+| 4, 5 | top cover: left and right wings (where the mirrors were) | 35 mm | 45 mm |
+| 6, 7 | finger holders: top pads (left = thumb, right = index) | 18 mm | 20 mm |
+
 ## Quick start: capture → LeRobot dataset
 ```bash
 python3 collection/run_pipeline.py --session <session>   # data/raw/<session>/{top_cam,left_w_cam,right_w_cam}/
