@@ -118,8 +118,10 @@ h2r_collection's converter. `convert_to_lerobot.py`, `state_sources.py` and `run
 - Trajectory test (`run_pipeline.py --skip-tag --state-source aruco --sim-gt ... --camera ...`; egocentric head
   camera, gripper camera pitched 15° down): one dataset with both `observation.state` (predicted) and
   `observation.state_gt` (raw ground truth). Pose on 100 % of frames; gripper from the wrist camera on 100 %, within
-  1.1 mm of jaw width. Before the EMA, TCP error median 1.5 / 0.56 / 2.4 mm (pick-and-place / wrist roll / put back),
-  with single-tag stretches in the head view reaching 17–30 mm. `state_gt` matches the independent `sim_gt` build
+  1.1 mm of jaw width. Before the EMA, with the h2r Osmo Nano intrinsics at 1080p (600 px): TCP error median
+  2.8 / 1.3 / 2.9 mm, p90 7.1 / 2.6 / 7.7 mm (pick-and-place / wrist roll / put back), single-tag stretches in the
+  head view (41 / 5 / 38 % of frames) reaching 23–31 mm. (With the earlier 1050 px sim camera: median
+  1.5 / 0.56 / 2.4 mm.) Sync exact, every cut frame-exact. `state_gt` matches the independent `sim_gt` build
   exactly; `action` / `action_gt` are the next state within every episode.
 - **Choosing the EMA** (`sim/ema_sweep.py`, same criterion as the h2r datasets): the least smoothing whose one-step
   delta noise, which is what the actions see, reaches the G1 encoder-FK level (0.30 / 0.26 / 0.27 mm per-frame floor ->
