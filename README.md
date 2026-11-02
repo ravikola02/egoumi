@@ -9,9 +9,9 @@ HaWoR hand pose + head SLAM → LeRobot dataset). The goal is a `--source grippe
 HaWoR hand pose with the gripper pose from the markers and keeps HaWoR's head-camera SLAM
 ([plan](docs/h2r_gripper_plan.md)).
 
-[![Real capture: egocentric head recording, side view and ego view of the reconstructed gripper and head camera](assets/preview_real_ep001.gif)](assets/preview_real_ep001.mp4)
+[![Real capture: egocentric head recording, side view and ego view of the reconstructed gripper and head camera](assets/preview_real.gif)](assets/preview_real.mp4)
 
-*Real capture, pick-and-place episode ([mp4](assets/preview_real_ep001.mp4)). **Left, RECORDING:** the egocentric head
+*Real capture, pick-and-place episode ([mp4](assets/preview_real.mp4)). **Left, RECORDING:** the egocentric head
 camera (DJI Osmo Nano, 4:3). **Middle, side view / right, ego view (chase camera behind the head):** the gripper pose
 from the ArUco markers (purple, with its TCP path) and the head camera from HaWoR's SLAM (orange, with its path).
 Bottom: gripper TCP position (x, y, z) and the jaw width from
