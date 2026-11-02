@@ -155,10 +155,20 @@ def row_frames(path, n: int, fps: float):
 
 def scaled_K(cam: Dict, width: int, height: int):
     """Intrinsics (K, dist) from a camera entry given at cam['width'] x cam['height'], rescaled to the clip's size
-    (pixel-centre convention: c' = (c + 0.5) * s - 0.5)."""
-    sx, sy = width / float(cam["width"]), height / float(cam["height"])
-    K = np.array([[cam["fx"] * sx, 0, (cam["cx"] + 0.5) * sx - 0.5],
-                  [0, cam["fy"] * sy, (cam["cy"] + 0.5) * sy - 0.5], [0, 0, 1.0]])
+    (pixel-centre convention: c' = (c + 0.5) * s - 0.5).
+    Same aspect ratio: plain rescale. Different aspect (Osmo Nano 4:3 1920x1440 vs the 16:9 1920x1080 entry): the
+    16:9 mode is taken as a vertical crop of the 4:3 sensor at the same pixel scale, so f scales with the width only
+    and the principal point offset from the image centre is kept. UNVERIFIED for the Osmo Nano: calibrate."""
+    W0, H0 = float(cam["width"]), float(cam["height"])
+    sx, sy = width / W0, height / H0
+    if abs(width / height - W0 / H0) > 1e-3:
+        s = sx
+        cx = (width - 1) / 2.0 + (cam["cx"] - (W0 - 1) / 2.0) * s
+        cy = (height - 1) / 2.0 + (cam["cy"] - (H0 - 1) / 2.0) * s
+        K = np.array([[cam["fx"] * s, 0, cx], [0, cam["fy"] * s, cy], [0, 0, 1.0]])
+    else:
+        K = np.array([[cam["fx"] * sx, 0, (cam["cx"] + 0.5) * sx - 0.5],
+                      [0, cam["fy"] * sy, (cam["cy"] + 0.5) * sy - 0.5], [0, 0, 1.0]])
     return K, np.asarray(cam.get("dist", [0] * 5), float)
 
 
