@@ -1,8 +1,9 @@
 # EgoUMI: UMI pinch gripper + ArUco head-camera tracking
 
-> 🚧 **Work in progress.** The hardware is designed but not yet printed or fit-tested. The gripper tracking has been
-> tested **only in simulation**; the capture → LeRobot pipeline has also run on real 3-camera footage, without
-> gripper poses. Expect breaking changes.
+> 🚧 **Work in progress.** The gripper is printed, and the whole data-collection pipeline has run on a first real
+> capture (2026-11-02): head + gripper camera → audio sync → tagging → ArUco gripper pose → HaWoR head SLAM →
+> LeRobot dataset, 11 pick-and-place episodes. Not yet calibrated (lens distortion, gripper-camera mount), so real
+> poses carry an unmeasured bias. Expect breaking changes.
 
 A non-powered, UMI-style handheld gripper that you close with a thumb + index pinch, tracked with ArUco markers
 from an egocentric **head** camera, so that human demonstrations can become robot-learning datasets.
@@ -11,6 +12,15 @@ It builds on my [**h2r_collection**](https://github.com/ravikola02/h2r_collectio
 HaWoR hand pose + head SLAM → LeRobot dataset). The goal is a `--source gripper` mode there that replaces the
 HaWoR hand pose with the gripper pose from the markers and keeps HaWoR's head-camera SLAM
 ([plan](docs/h2r_gripper_plan.md)).
+
+[![Real capture: egocentric head recording, side view and ego view of the reconstructed gripper and head camera](assets/preview_real_ep001.gif)](assets/preview_real_ep001.mp4)
+
+*First real capture, episode 1 ([mp4](assets/preview_real_ep001.mp4)). **Left, RECORDING:** the egocentric head
+camera (DJI Osmo Nano, 4:3). **Middle, side view / right, ego view (chase camera behind the head):** the gripper pose
+from the ArUco markers (purple, with its TCP path) and the head camera from HaWoR's SLAM (orange, with its path).
+Bottom: body-tag reprojection error, jaw width from the gripper camera, body tags in view. No ground truth here; the
+3D views are levelled with the gripper's own up axis and the table plane is placed approximately (display only).
+Made with `scripts/preview_gripper.py --style presentation --ego`.*
 
 [![Recording (egocentric head camera) next to the 3D reconstruction of the gripper, with error timeline](assets/preview_pick_place.gif)](assets/preview_pick_place.mp4)
 
@@ -24,14 +34,14 @@ the default `--style debug` overlays the estimate on the frame with per-tag deta
 ## What's here
 | Part | Status |
 |---|---|
-| `cad/`: gripper derived from the [Stanford UMI](https://umi-gripper.github.io/) CAD; pistol grip kept, trigger replaced by a thumb ring and an index ring on the finger holders; mirrors removed to make room for tags | CAD done and collision-checked, print files for a Bambu H2D in `cad/out_v3` ([print notes](docs/PRINT_NOTES.md)); **not printed yet** |
+| `cad/`: gripper derived from the [Stanford UMI](https://umi-gripper.github.io/) CAD; pistol grip kept, trigger replaced by a thumb ring and an index ring on the finger holders; mirrors removed to make room for tags | CAD done and collision-checked, print files for a Bambu H2D in `cad/out_v3` ([print notes](docs/PRINT_NOTES.md)); printed and used for the first real capture |
 | `sim/`: synthetic head-camera episodes (textured CAD, ArUco stickers, hand stand-in, wood-grain table, object, head bob, tremor, blur, noise) in HaWoR's frame layout, with ground truth | working |
-| `umi_pipe/` + `scripts/gripper_pose.py`: subpixel ArUco → multi-tag PnP (SQPNP + LM, outlier rejection, single-tag disambiguation) → joint body + jaw refinement → jaw width → world TCP pose | working in sim |
+| `umi_pipe/` + `scripts/gripper_pose.py`: subpixel ArUco → multi-tag PnP (SQPNP + LM, outlier rejection, single-tag disambiguation) → joint body + jaw refinement → jaw width → world TCP pose | working in sim and on the first real capture (body pose found in 100 % of episode-1 frames, 2–3 px reprojection most of the time) |
 | `scripts/preview_gripper.py`: the preview above, the gripper counterpart of HaWoR's MANO cam/world visualisation; also runs on real sequences without ground truth | working |
-| `collection/`: 3-camera capture (head + 2 gripper/wrist cams) → audio sync → browser tagger → frame-exact clips → LeRobot v3.0 / v2.1, the h2r_collection flow without HaWoR ([details](collection/README.md)) | working: tested on the h2r_collection Sample session and on a rendered capture |
-| Trajectories in the dataset: `--state-source aruco` reconstructs the gripper TCP from the head clips (14-d h2r_collection layout); with sim ground truth the same dataset also gets `observation.state_gt` / `action_gt` | working in sim: gripper value from the gripper (wrist) camera on 100 % of frames; causal EMA α 0.18 on the predicted pose, position and orientation (chosen by the h2r delta-noise criterion, `sim/ema_sweep.py`); head-camera motion from HaWoR's SLAM (masked DROID-SLAM + Metric3D, as h2r_collection) |
+| `collection/`: 3-camera capture (head + 2 gripper/wrist cams) → audio sync → browser tagger → frame-exact clips → LeRobot v3.0 / v2.1, the h2r_collection flow without HaWoR ([details](collection/README.md)) | working: tested on the h2r_collection Sample session, a rendered capture and the first real gripper capture (wrist offset found from audio at confidence 103; no left wrist camera) |
+| Trajectories in the dataset: `--state-source aruco` reconstructs the gripper TCP from the head clips (14-d h2r_collection layout); with sim ground truth the same dataset also gets `observation.state_gt` / `action_gt` | working in sim: gripper value from the gripper (wrist) camera on 100 % of frames; causal EMA α 0.18 on the predicted pose, position and orientation (chosen by the h2r delta-noise criterion, `sim/ema_sweep.py`); head-camera motion from HaWoR's SLAM (masked DROID-SLAM + Metric3D, as h2r_collection). Real capture: the mount-based jaw fit needs a calibrated gripper-camera mount and lens, so the gripper value there comes from `scripts/gripper_minmax.py` (jaw-tag image position normalised between the most open and most closed seen; a full open/close at the start of each session will set the range) |
 | `sim/render_capture.py`: rendered raw capture (head camera, gripper GoPro, blank second wrist feed, skewed clocks, clap soundtrack) + `sim/check_capture_sync.py` (sync and cut accuracy against ground truth) | working |
-| Camera calibration (lens distortion), real captures | planned |
+| Camera calibration (lens distortion, gripper-camera mount), gravity-levelled world frame | planned |
 
 ## Recording
 Cameras are DJI Osmo Nanos, as in h2r_collection (head + one on the gripper). Settings, mounts and the per-session
