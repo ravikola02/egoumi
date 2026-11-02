@@ -95,13 +95,13 @@ def label(img, text, uv, colr):
     cv2.putText(img, text, org, cv2.FONT_HERSHEY_SIMPLEX, 0.52, colr, 1, cv2.LINE_AA)
 
 
-def camera_meshes():
+def camera_meshes(scale=1.0):
     """Head-camera stand-in in the OpenCV camera frame (z forward): (body behind the origin, lens in front)."""
     import trimesh
-    body = trimesh.creation.box(extents=[0.07, 0.045, 0.04])
-    body.apply_translation([0, 0, -0.022])
-    lens = trimesh.creation.cylinder(radius=0.014, height=0.018)
-    lens.apply_translation([0, 0, 0.007])
+    body = trimesh.creation.box(extents=[0.07 * scale, 0.045 * scale, 0.04 * scale])
+    body.apply_translation([0, 0, -0.022 * scale])
+    lens = trimesh.creation.cylinder(radius=0.014 * scale, height=0.018 * scale)
+    lens.apply_translation([0, 0, 0.007 * scale])
     return body, lens
 
 
@@ -279,6 +279,14 @@ def main():
     T_wv = look_at_cv(eye, ctr)
     cam_body, cam_lens = camera_meshes()
     cam_nodes = [Sw.add_mesh(cam_body, (0.78, 0.80, 0.83, 1.0)), Sw.add_mesh(cam_lens, (1.0, 0.62, 0.16, 1.0))]
+    PARK = np.eye(4); PARK[:3, 3] = 1e3                  # parking pose for meshes hidden in a panel
+    ego_nodes = []
+    if a.ego:   # small head camera for the chase view (the full-size one would fill it)
+        sb, sl = camera_meshes(scale=0.35)
+        ego_nodes = [Sw.add_mesh(sb, (0.78, 0.80, 0.83, 1.0)), Sw.add_mesh(sl, (1.0, 0.62, 0.16, 1.0))]
+        for nd in ego_nodes:
+            Sw.scene.set_pose(nd, PARK)
+    fr_small = frustum_lines(K, W, H, depth=0.035)
     Sw.set_camera(Kw, T_wv)   # Kw is already at panel resolution
     T_vw = inv(T_wv)
     fr_lines = frustum_lines(K, W, H)
@@ -311,10 +319,11 @@ def main():
             Sw.scene.set_pose(nd, cams_w[f])
         def world_panel(T_wv_, title, sub, ego=False):
             Sw.set_camera(Kw, T_wv_)
-            if ego:   # inside the chase view the head camera's own box and frustum would fill the frame
-                far = np.eye(4); far[:3, 3] = 1e3
+            if ego:   # inside the chase view the full-size camera would fill the frame: swap in the small one
                 for nd in cam_nodes:
-                    Sw.scene.set_pose(nd, far)
+                    Sw.scene.set_pose(nd, PARK)
+                for nd in ego_nodes:
+                    Sw.scene.set_pose(nd, cams_w[f])
             T_vw = inv(T_wv_)
             col, _ = Sw.render()
             wv = cv2.cvtColor(col[..., :3], cv2.COLOR_RGB2BGR)
@@ -325,17 +334,19 @@ def main():
             sel = np.where(valid[:f + 1])[0]
             if len(sel):
                 uv, ok = project(Kw, T_vw, tcp_e[sel]); draw_poly(wv, uv, ok, EST_BGR, 2)
-            for seg in ([] if ego else fr_lines):
+            for seg in (fr_small if ego else fr_lines):
                 uv, ok = project(Kw, T_vw, apply(cams_w[f], np.array(seg))); draw_poly(wv, uv, ok, CAM_BGR, 2)
             if ego:
                 for nd in cam_nodes:
                     Sw.scene.set_pose(nd, cams_w[f])
+                for nd in ego_nodes:
+                    Sw.scene.set_pose(nd, PARK)
             if not ego and (g is None or p["cam_source"] == "table"):      # an estimated camera differs from the recording one: draw it
                 for seg in fr_lines:
                     uv, ok = project(Kw, T_vw, apply(p["T_world_cam"][f], np.array(seg))); draw_poly(wv, uv, ok, EST_BGR, 1)
             if pres:
                 uv, ok = project(Kw, T_vw, cam_c[f][None])
-                if ok[0] and not ego:
+                if ok[0]:
                     label(wv, "head camera", uv[0], CAM_BGR)
                 if src > 0:
                     uv, ok = project(Kw, T_vw, tcp_e[f][None])
