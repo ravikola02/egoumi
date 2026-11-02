@@ -254,7 +254,7 @@ class ArucoSource(_GripperBase):
     name = "aruco"
 
     def __init__(self, cut_sheet=None, sim_gt=None, camera=None, markers=None, cam_motion="droid_slam",
-                 max_gap=5, ema_pos=0.18, ema_grip=1.0, ema_rot=None, slam_cache=None, hawor_python=None,
+                 max_gap=5, ema_pos=0.18, ema_grip=None, ema_rot=None, slam_cache=None, hawor_python=None,
                  hawor_repo=None, slam_mask=True, slam_dilate=25, **kw):
         super().__init__(cut_sheet=cut_sheet, sim_gt=sim_gt)
         _repo_imports()
@@ -292,9 +292,10 @@ class ArucoSource(_GripperBase):
                      "mask": bool(slam_mask), "dilate": int(slam_dilate)}
         self.slam_info: Dict = {}
         # h2r criterion (sim/ema_sweep.py): least smoothing whose one-step delta noise reaches the G1 FK level ->
-        # position 0.18 (h2r kitting used 0.164 for HaWoR); the wrist-camera gripper is clean, so no gripper EMA
+        # position 0.18 (h2r kitting used 0.164 for HaWoR); gripper follows the position alpha by default (one lag
+        # for the whole state, as the user asked on 2026-11-02; the wrist-camera width itself is already clean)
         self.ema_pos = 1.0 if ema_pos is None else float(ema_pos)
-        self.ema_grip = 1.0 if ema_grip is None else float(ema_grip)
+        self.ema_grip = self.ema_pos if ema_grip is None else float(ema_grip)
         # orientation: same alpha as position by default, so the whole pose carries one lag
         self.ema_rot = self.ema_pos if ema_rot is None else float(ema_rot)
 

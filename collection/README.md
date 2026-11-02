@@ -97,7 +97,7 @@ Camera keys: `observation.images.{head,wrist_left,wrist_right}` (identical to h2
 |---|---|---|
 | `none` (default) | absent: video-only dataset | viewing, visual pre-training, checking cuts and sync |
 | `zeros` | 14-d zeros in the h2r_collection layout (`left/right.eef.{x,y,z,roll,pitch,yaw}`, `left/right.gripper`), `info.json → egoumi.state_placeholder: true` | smoke-testing training code only; **never train on it** |
-| `aruco` | right gripper TCP pose reconstructed from the **head clips** with the ArUco pipeline (`umi_pipe.pose`); `right.gripper` from the jaw tags seen by the **gripper (wrist) camera** (head-camera jaw sightings as a fallback), interpolated across frames without one; left arm zero. Causal EMA α 0.18 on position (`--ema-pos`) and on orientation (`--ema-rot`, filtered on SO(3) so the ±π wrap cannot break it; defaults to the position α so the whole pose has one lag), none on the gripper (`--ema-grip 1.0`); see below for how α was chosen. Head-camera motion: `--cam-motion hawor_slam` (default; HaWoR's masked DROID-SLAM + Metric3D, see *Head-camera motion* below), `sim_gt` (sim ground truth) or `none`. With `--sim-gt` the same dataset also gets **`observation.state_gt` / `action_gt`**, the ground truth in the same frame and layout | testing reconstruction against ground truth; real captures once SLAM is in |
+| `aruco` | right gripper TCP pose reconstructed from the **head clips** with the ArUco pipeline (`umi_pipe.pose`); `right.gripper` from the jaw tags seen by the **gripper (wrist) camera** (head-camera jaw sightings as a fallback), interpolated across frames without one; left arm zero. Causal EMA α 0.18 on position (`--ema-pos`) and on orientation (`--ema-rot`, filtered on SO(3) so the ±π wrap cannot break it; defaults to the position α so the whole pose has one lag), and on the gripper (`--ema-grip`, also defaults to the position α, so state and gripper carry one lag); see below for how α was chosen. Head-camera motion: `--cam-motion droid_slam` (default; masked DROID-SLAM + Metric3D, see *Head-camera motion* below), `sim_gt` (sim ground truth) or `none`. With `--sim-gt` the same dataset also gets **`observation.state_gt` / `action_gt`**, the ground truth in the same frame and layout | tested in sim against ground truth and on a real capture |
 | `sim_gt` | the sim ground truth only (`sim/render_capture.py` sessions) | testing the trajectory plumbing |
 
 - Episode length = the shortest camera clip at `--fps` (floor), so every camera has exactly one frame per row.
@@ -174,8 +174,10 @@ h2r_collection's converter. `convert_to_lerobot.py`, `state_sources.py` and `run
   | **0.18 (default)** | **152 ms** | **0.11°** | **0.15 / 1.6°** | **2.9°** |
 
   The EMA does little for the per-frame error itself: that is slow bias from single-tag stretches, not jitter. The
-  gripper needs no EMA: the wrist-camera width is already clean (median error 0.00 mm), and α 0.3 would only add lag
-  (p90 error 0.87 -> 4.2 mm). These are sim numbers; re-run the sweep once real captures have ground truth.
+  gripper gets the same α (0.18) by default so the whole state carries one lag. In sim the wrist-camera width is
+  already clean (median error 0.00 mm) and the EMA only adds lag there (α 0.3: p90 error 0.87 -> 4.2 mm); on the
+  real capture the min/max-normalised signal steps by up to ~0.1 per frame, which the EMA smooths. `--ema-grip 1.0`
+  turns it off. These are sim numbers; re-run the sweep once real captures have ground truth.
 - **Cutter fix** (`sync_videos.clip_camera`, marked `egoumi change`): for a camera whose start offset is not a whole
   number of frames, clip frame 0 used to duplicate frame 1 (one frame dropped at every cut). It now seeks on the
   camera's own frame grid and caps at `-frames:v` with passthrough timestamps. h2r_collection still has the old code.

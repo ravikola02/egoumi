@@ -109,9 +109,9 @@ def main(argv=None) -> int:
     p.add_argument("--ema-pos", type=float, default=0.18,
                    help="aruco: causal EMA alpha on the predicted TCP position (default 0.18 from sim/ema_sweep.py: "
                         "one-step delta noise at the G1 FK level; h2r kitting used 0.164; 1.0 = off)")
-    p.add_argument("--ema-grip", type=float, default=1.0,
-                   help="aruco: causal EMA alpha on the predicted gripper value (default 1.0 = off: the wrist-camera "
-                        "width is already clean; h2r_collection used 0.3 for MANO)")
+    p.add_argument("--ema-grip", type=float, default=None,
+                   help="aruco: causal EMA alpha on the predicted gripper value (default: same as --ema-pos, so state "
+                        "and gripper carry one lag; h2r_collection used 0.3 for MANO; 1.0 = off)")
     p.add_argument("--ema-rot", type=float, default=None,
                    help="aruco: causal EMA alpha on the predicted orientation, applied on SO(3) (default: same as "
                         "--ema-pos, so the whole pose has one lag; 1.0 = off)")

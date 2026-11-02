@@ -13,7 +13,8 @@ mount and lens model; with the nominal ones it reads every frame as wider than o
   3. gripper = (s - s_open) / (s_closed - s_open), clipped to [0, 1] (1 = closed, as h2r_collection);
      s_open / s_closed = the --lo / --hi percentiles of the session (or of a calibration clip, --calib-clip,
      recorded opening and closing fully before the session);
-  4. rows without a jaw tag are interpolated inside the episode (held at the ends).
+  4. rows without a jaw tag are interpolated inside the episode (held at the ends);
+  5. causal EMA per episode (--ema, default 0.18 = the pose's alpha, so state and gripper carry one lag; 1 = off).
 Writes observation.state[:, 13] and action[:, 13] (= next state's, h2r convention) and refreshes their stats.
 
   python3 scripts/gripper_minmax.py --dataset data/output/<c>/lerobot_v3 --clips data/output/<c>/episode_clips
@@ -25,7 +26,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT); sys.path.insert(0, os.path.join(ROOT, "collection"))
 from umi_pipe import pose as P                     # noqa: E402
 from umi_pipe.model import GripperModel            # noqa: E402
-from state_sources import scaled_K, row_frames     # noqa: E402
+from state_sources import scaled_K, row_frames, ema     # noqa: E402
 
 GRIP = 13          # right.gripper in the h2r 14-d layout
 
@@ -54,6 +55,7 @@ def main():
     ap.add_argument("--calib-clip", help="wrist clip that opens and closes fully (sets open/closed instead of the session)")
     ap.add_argument("--lo", type=float, default=1.0, help="percentile taken as fully open (default 1)")
     ap.add_argument("--hi", type=float, default=99.5, help="percentile taken as closed (default 99.5)")
+    ap.add_argument("--ema", type=float, default=0.18, help="causal EMA alpha on the gripper value (1 = off)")
     ap.add_argument("--no-backup", action="store_true")
     a = ap.parse_args()
 
@@ -125,6 +127,7 @@ def main():
             x = np.interp(np.arange(n), np.where(seen)[0], x[seen])
         else:
             x = np.zeros(n)
+        x = ema(x, a.ema)
         grip[i] = x.astype(np.float32)
         stats.append((i, 100 * seen.mean(), 100 * (fill & seen).mean(), x.min(), x.max()))
     for i, sv, fi, lo, hi in stats:
@@ -192,6 +195,9 @@ def main():
         "reference": "calibration clip" if calib else f"session percentiles p{a.lo:g} / p{a.hi:g}",
         "index_to_thumb": [float(coef[0]), float(coef[1])],
         "note": "1 = the most-closed jaw position seen in the reference, not necessarily fully closed"}
+    info["egoumi"]["gripper"]["ema_alpha"] = float(a.ema)
+    if isinstance(info["egoumi"].get("ema"), dict):
+        info["egoumi"]["ema"]["gripper_alpha"] = float(a.ema)
     json.dump(info, open(os.path.join(ds, "meta", "info.json"), "w"), indent=4)
     print("dataset updated")
 
