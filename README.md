@@ -14,8 +14,7 @@ HaWoR hand pose with the gripper pose from the markers and keeps HaWoR's head-ca
 *Real capture, pick-and-place episode ([mp4](assets/preview_real_ep001.mp4)). **Left, RECORDING:** the egocentric head
 camera (DJI Osmo Nano, 4:3). **Middle, side view / right, ego view (chase camera behind the head):** the gripper pose
 from the ArUco markers (purple, with its TCP path) and the head camera from HaWoR's SLAM (orange, with its path).
-The hub and the box are scanned meshes placed from the gripper (the hub where the jaws close, carried while they stay
-closed, the box under the release point), not tracked. Bottom: gripper TCP position (x, y, z) and the jaw width from
+Bottom: gripper TCP position (x, y, z) and the jaw width from
 the gripper camera. No ground truth here; the 3D views are levelled with the gripper's own up axis and the table plane
 is placed approximately (display only).*
 

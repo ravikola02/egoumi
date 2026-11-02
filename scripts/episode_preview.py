@@ -16,8 +16,7 @@ Builds <collection>/preview/<episode>/ in the layout preview_gripper.py reads:
                       measured: the grasped object stands on the table under the TCP where the jaws close, moves
                       rigidly with the TCP while they stay closed and stays where it was released; the container
                       stands on the table under the release point. Yaw is not observed (meshes keep their own).
-                      Meshes: npz with vertices (m, z up, bottom at z = 0, footprint centred), faces, colors (RGB)
-                      e.g. the SAM3D kitting meshes in egovla_setup/kitting_assets/{hub,box}_table.npz.
+                      Meshes: npz with vertices (m, z up, bottom at z = 0, footprint centred), faces, colors (RGB).
 World frame of the preview:
   sim:  the sim world (z up); the SLAM track is anchored at the true first head-camera pose, so its scale and drift
         errors show against the green ground truth.
