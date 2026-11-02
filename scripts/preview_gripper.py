@@ -210,6 +210,12 @@ def main():
     ap.add_argument("--style", choices=["debug", "presentation"], default="debug",
                     help="debug: estimate overlaid on the frame + tag outlines + readouts (default); presentation: "
                          "raw recording | reconstruction, with title bars and a legend (README media)")
+    ap.add_argument("--ego", action="store_true",
+                    help="add a third panel: chase view a bit behind and above the head camera (needs a z-up world, "
+                         "as the sim and the levelled real previews have)")
+    ap.add_argument("--ego-back", type=float, default=0.45, help="ego view: metres behind the head camera")
+    ap.add_argument("--ego-up", type=float, default=0.25, help="ego view: metres above the head camera")
+    ap.add_argument("--ego-smooth", type=float, default=0.08, help="ego view: EMA alpha on the chase camera (1 = rigid)")
     ap.add_argument("--max-frames", type=int, default=0)
     ap.add_argument("--fps", type=float, default=None)
     a = ap.parse_args()
@@ -240,8 +246,9 @@ def main():
         with open(os.path.join(out_dir, "metrics.json"), "w") as fh:
             json.dump(metrics, fh, indent=1)
         print(json.dumps(metrics, indent=1))
-    tl, xr = timeline(t, p, e_tcp, e_w, g, model, os.path.join(out_dir, "timeline.png"), W=2 * pw)
-    tl = cv2.resize(tl, (2 * pw, tl.shape[0]))
+    npan = 3 if a.ego else 2
+    tl, xr = timeline(t, p, e_tcp, e_w, g, model, os.path.join(out_dir, "timeline.png"), W=npan * pw)
+    tl = cv2.resize(tl, (npan * pw, tl.shape[0]))
 
     meshes = load_meshes(with_gopro=True)
     # camera view: world = camera frame, gripper at T_cam_body
@@ -277,7 +284,7 @@ def main():
     fr_lines = frustum_lines(K, W, H)
 
     proc = subprocess.Popen([FFMPEG, "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "bgr24", "-s",
-                             f"{2 * pw}x{ph + tl.shape[0]}", "-r", str(fps), "-i", "-", "-c:v", "libx264",
+                             f"{npan * pw}x{ph + tl.shape[0]}", "-r", str(fps), "-i", "-", "-c:v", "libx264",
                              "-crf", "20", "-pix_fmt", "yuv420p", "-movflags", "+faststart", out],
                             stdin=subprocess.PIPE)
     tag_ids_body = {tt.id for tt in model.body_tags}; tag_ids_jaw = {tt.id for tt in model.jaw_tags}
@@ -302,50 +309,74 @@ def main():
         Sw.set_gripper("est", p["T_world_body"][f], tr, visible=src > 0)
         for nd in cam_nodes:
             Sw.scene.set_pose(nd, cams_w[f])
-        col, _ = Sw.render()
-        wv = cv2.cvtColor(col[..., :3], cv2.COLOR_RGB2BGR)
-        wv[col[..., 3] == 0] = (38, 33, 29)
-        uv, ok = project(Kw, T_vw, cam_c[:f + 1]); draw_poly(wv, uv, ok, CAM_BGR, 2)          # head-camera path
-        if g is not None:
-            uv, ok = project(Kw, T_vw, g["T_world_tcp"][:f + 1, :3, 3]); draw_poly(wv, uv, ok, GT_BGR, 2)
-        sel = np.where(valid[:f + 1])[0]
-        if len(sel):
-            uv, ok = project(Kw, T_vw, tcp_e[sel]); draw_poly(wv, uv, ok, EST_BGR, 2)
-        for seg in fr_lines:
-            uv, ok = project(Kw, T_vw, apply(cams_w[f], np.array(seg))); draw_poly(wv, uv, ok, CAM_BGR, 2)
-        if g is None or p["cam_source"] == "table":      # an estimated camera differs from the recording one: draw it
-            for seg in fr_lines:
-                uv, ok = project(Kw, T_vw, apply(p["T_world_cam"][f], np.array(seg))); draw_poly(wv, uv, ok, EST_BGR, 1)
-        if pres:
-            uv, ok = project(Kw, T_vw, cam_c[f][None])
-            if ok[0]:
-                label(wv, "head camera", uv[0], CAM_BGR)
-            if src > 0:
-                uv, ok = project(Kw, T_vw, tcp_e[f][None])
-                if ok[0]:
-                    label(wv, "gripper", uv[0], (230, 190, 255))
-            banner(wv, "RECONSTRUCTION", "3D gripper pose from ArUco markers")
-            items = [(EST_BGR, "reconstructed gripper + TCP path")]
+        def world_panel(T_wv_, title, sub, ego=False):
+            Sw.set_camera(Kw, T_wv_)
+            if ego:   # inside the chase view the head camera's own box and frustum would fill the frame
+                far = np.eye(4); far[:3, 3] = 1e3
+                for nd in cam_nodes:
+                    Sw.scene.set_pose(nd, far)
+            T_vw = inv(T_wv_)
+            col, _ = Sw.render()
+            wv = cv2.cvtColor(col[..., :3], cv2.COLOR_RGB2BGR)
+            wv[col[..., 3] == 0] = (38, 33, 29)
+            uv, ok = project(Kw, T_vw, cam_c[:f + 1]); draw_poly(wv, uv, ok, CAM_BGR, 2)          # head-camera path
             if g is not None:
-                items.append((GT_BGR, "ground truth"))
-            items.append((CAM_BGR, "head camera + path"))
-            legend(wv, items)
-        else:
-            put(wv, "world view: estimate (purple) vs GT (green ghost), TCP trails, head camera (orange)", (10, 22))
-            put(wv, f"cam source: {p['cam_source']}", (10, 44))
-            if metrics:
-                mm = metrics["tcp_world_mm"]; dg = metrics["tcp_world_deg"]
-                if mm:
-                    put(wv, f"episode: TCP median {mm['median']:.1f} mm / p90 {mm['p90']:.1f} mm, "
-                            f"{dg['median']:.2f} deg; valid {metrics['coverage_valid_pct']:.0f} %", (10, 66))
+                uv, ok = project(Kw, T_vw, g["T_world_tcp"][:f + 1, :3, 3]); draw_poly(wv, uv, ok, GT_BGR, 2)
+            sel = np.where(valid[:f + 1])[0]
+            if len(sel):
+                uv, ok = project(Kw, T_vw, tcp_e[sel]); draw_poly(wv, uv, ok, EST_BGR, 2)
+            for seg in ([] if ego else fr_lines):
+                uv, ok = project(Kw, T_vw, apply(cams_w[f], np.array(seg))); draw_poly(wv, uv, ok, CAM_BGR, 2)
+            if ego:
+                for nd in cam_nodes:
+                    Sw.scene.set_pose(nd, cams_w[f])
+            if not ego and (g is None or p["cam_source"] == "table"):      # an estimated camera differs from the recording one: draw it
+                for seg in fr_lines:
+                    uv, ok = project(Kw, T_vw, apply(p["T_world_cam"][f], np.array(seg))); draw_poly(wv, uv, ok, EST_BGR, 1)
+            if pres:
+                uv, ok = project(Kw, T_vw, cam_c[f][None])
+                if ok[0] and not ego:
+                    label(wv, "head camera", uv[0], CAM_BGR)
+                if src > 0:
+                    uv, ok = project(Kw, T_vw, tcp_e[f][None])
+                    if ok[0]:
+                        label(wv, "gripper", uv[0], (230, 190, 255))
+                banner(wv, title, sub)
+                items = [(EST_BGR, "reconstructed gripper + TCP path")]
+                if g is not None:
+                    items.append((GT_BGR, "ground truth"))
+                items.append((CAM_BGR, "head camera + path"))
+                legend(wv, items)
+            else:
+                put(wv, "world view: estimate (purple) vs GT (green ghost), TCP trails, head camera (orange)", (10, 22))
+                put(wv, f"cam source: {p['cam_source']}", (10, 44))
+                if metrics:
+                    mm = metrics["tcp_world_mm"]; dg = metrics["tcp_world_deg"]
+                    if mm:
+                        put(wv, f"episode: TCP median {mm['median']:.1f} mm / p90 {mm['p90']:.1f} mm, "
+                                f"{dg['median']:.2f} deg; valid {metrics['coverage_valid_pct']:.0f} %", (10, 66))
+            return wv
 
+        wv = world_panel(T_wv, "RECONSTRUCTION", "side view" if a.ego and pres else "3D gripper pose from ArUco markers")
+        panels = [img, wv]
+        if a.ego:
+            Tc = cams_w[f]; fwd = Tc[:3, 2].copy(); fwd[2] = 0; fwd /= max(np.linalg.norm(fwd), 1e-9)
+            eye_t = Tc[:3, 3] - a.ego_back * fwd + np.array([0, 0, a.ego_up])
+            tgt_t = Tc[:3, 3] + 0.55 * Tc[:3, 2]                  # along the head camera's line of sight
+            if f == 0:
+                ego_eye, ego_tgt = eye_t, tgt_t
+            else:
+                ego_eye = ego_eye + a.ego_smooth * (eye_t - ego_eye); ego_tgt = ego_tgt + a.ego_smooth * (tgt_t - ego_tgt)
+            panels.append(world_panel(look_at_cv(ego_eye, ego_tgt), "RECONSTRUCTION",
+                                      "ego view, behind the head camera", ego=True))
+            Sw.set_camera(Kw, T_wv)
         # ---- timeline cursor ----
         tl_f = tl.copy()
         u = (t[f] - t[0]) / max(t[-1] - t[0], 1e-9)
         for (x0, x1, y0, y1) in xr:
-            x = int(round((x0 + u * (x1 - x0)) * tl_f.shape[1] / (2 * pw)))
+            x = int(round((x0 + u * (x1 - x0)) * tl_f.shape[1] / (npan * pw)))
             cv2.line(tl_f, (x, int(y0)), (x, int(y1)), (255, 255, 255), 1, cv2.LINE_AA)
-        frame = np.vstack([np.hstack([img, wv]), tl_f])
+        frame = np.vstack([np.hstack(panels), tl_f])
         proc.stdin.write(frame.tobytes())
         if f % 60 == 0:
             print(f"preview {f + 1}/{n}", flush=True)
