@@ -1,9 +1,9 @@
 # collection/: 3-camera capture → LeRobot dataset
 
-> 🚧 Work in progress. Cameras, sync, cutting and the dataset writers work (tested on the
-> [h2r_collection](https://github.com/ravikola02/h2r_collection) Sample session and a rendered capture). The gripper
-> trajectory (`--state-source aruco`, head-camera motion from HaWoR's SLAM) is tested **in sim only** so far; real
-> captures are pending. Without it, datasets are video-only (or carry a flagged zero placeholder).
+> Tested on the [h2r_collection](https://github.com/ravikola02/h2r_collection) Sample session, a rendered capture and
+> a real gripper capture (head + gripper camera). The gripper trajectory comes from `--state-source aruco` (head-camera
+> motion from HaWoR's SLAM); without it, datasets are video-only (or carry a flagged zero placeholder). On real
+> captures, set the gripper value with `scripts/gripper_minmax.py` until the gripper camera is calibrated.
 
 The same flow as h2r_collection's pipeline, with HaWoR removed:
 

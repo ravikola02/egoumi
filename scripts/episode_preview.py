@@ -12,6 +12,12 @@ Builds <collection>/preview/<episode>/ in the layout preview_gripper.py reads:
                       head-camera motion = the converter's HaWoR SLAM (<collection>/slam_cache), and
                       jaw width = the dataset's gripper value (gripper camera), width_open * (1 - gripper)
   gt.npz              (sim only) ground truth for the same rows, in the sim world
+  objects.npz         (optional, --grasped-mesh / --container-mesh) object meshes placed FROM THE GRIPPER, not
+                      measured: the grasped object stands on the table under the TCP where the jaws close, moves
+                      rigidly with the TCP while they stay closed and stays where it was released; the container
+                      stands on the table under the release point. Yaw is not observed (meshes keep their own).
+                      Meshes: npz with vertices (m, z up, bottom at z = 0, footprint centred), faces, colors (RGB)
+                      e.g. the SAM3D kitting meshes in egovla_setup/kitting_assets/{hub,box}_table.npz.
 World frame of the preview:
   sim:  the sim world (z up); the SLAM track is anchored at the true first head-camera pose, so its scale and drift
         errors show against the green ground truth.
@@ -38,6 +44,9 @@ def main():
     ap.add_argument("--camera", help="head intrinsics yaml (default configs/cameras_osmo_nano.yaml, or <sim-gt>/cameras.yaml)")
     ap.add_argument("--sim-gt", help="<raw session>/sim_gt of a rendered capture: adds ground truth, sim world")
     ap.add_argument("--width-open", type=float, default=0.072)
+    ap.add_argument("--grasped-mesh", help="npz mesh of the grasped object (see objects.npz above)")
+    ap.add_argument("--container-mesh", help="npz mesh of the container the object is placed in")
+    ap.add_argument("--closed", type=float, default=0.5, help="gripper value counted as closed on the object")
     ap.add_argument("--python", default=os.path.expanduser("~/anaconda3/envs/hawor/bin/python"),
                     help="interpreter for scripts/gripper_pose.py")
     a = ap.parse_args()
@@ -104,6 +113,30 @@ def main():
     pz["T_world_body"] = W @ pz["T_cam_body"]
     pz["T_world_tcp"] = W @ T_cam_tcp
     pz["cam_source"] = np.array(src)
+
+    # objects, placed from the gripper (display only)
+    if a.grasped_mesh or a.container_mesh:
+        tcp = pz["T_world_tcp"]; closed = grip > a.closed
+        if not closed.any():
+            sys.exit("gripper never closes in this episode: cannot place objects")
+        k0 = int(np.argmax(closed)); k1 = k0
+        while k1 + 1 < n and closed[k1 + 1]:
+            k1 += 1
+        table_z = 0.0                                 # table plane at z = 0 in both worlds
+        names, meshes, poses = [], [], []
+        if a.grasped_mesh:
+            T0 = np.eye(4); T0[:2, 3] = tcp[k0, :2, 3]; T0[2, 3] = table_z
+            T_tcp_obj = np.linalg.inv(tcp[k0]) @ T0
+            P = np.tile(T0, (n, 1, 1))
+            for k in range(k0, n):
+                P[k] = tcp[min(k, k1)] @ T_tcp_obj
+            names.append("grasped"); meshes.append(os.path.abspath(a.grasped_mesh)); poses.append(P)
+        if a.container_mesh:
+            T1 = np.eye(4); T1[:2, 3] = tcp[k1, :2, 3]; T1[2, 3] = table_z
+            names.append("container"); meshes.append(os.path.abspath(a.container_mesh)); poses.append(np.tile(T1, (n, 1, 1)))
+        np.savez_compressed(os.path.join(out, "objects.npz"), names=np.array(names), meshes=np.array(meshes),
+                            poses=np.stack(poses))
+        print(f"objects: {names}, grasp at row {k0}, release at row {k1} (placed from the gripper, approximate)")
     np.savez_compressed(os.path.join(out, "gripper_pose", "poses.npz"), **pz)
     print(f"ready: {out}\nnext: PYOPENGL_PLATFORM=egl {a.python} scripts/preview_gripper.py --seq {out} "
           f"--style presentation --ego")

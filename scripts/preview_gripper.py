@@ -7,7 +7,7 @@ Reads <seq>/extracted_images, <seq>/camera.yaml, <seq>/gripper_pose/{poses.npz,d
 (sim), <seq>/gt.npz. Writes <seq>/preview/gripper_preview.mp4, metrics.json and timeline.png.
 
 Layout:  [ camera view: estimated gripper mesh over the frame, tags, TCP axes ] [ world view: est vs GT, trails ]
-         [ timeline: TCP position / rotation error (reprojection RMS without GT), jaw width est vs GT          ]
+         [ timeline: TCP position / rotation error (TCP x, y, z without GT), jaw width est vs GT               ]
 Colours: purple = estimate (HaWoR's hand colour), green = ground truth, grey frames = interpolated, red = invalid.
 """
 import os, sys, glob, json, argparse, subprocess
@@ -172,7 +172,11 @@ def timeline(t, p, e_tcp, e_w, g, model, path, W=1920, H=360, dpi=100):
         a2.tick_params(colors="#ffb454", labelsize=8)
         ax[0].set_title("TCP error (purple mm, orange deg)", color="#e8eaed", fontsize=9)
     else:
-        ax[0].plot(t, p["rms"], color="#c48cff", lw=1.3); ax[0].set_title("body reprojection RMS [px]", color="#e8eaed", fontsize=9)
+        xyz = p["T_world_tcp"][:, :3, 3].copy(); xyz[p["world_src"] == 0] = np.nan
+        for j, (nm, colr) in enumerate((("x", "#ff6b6b"), ("y", "#33cc5a"), ("z", "#4c8dff"))):
+            ax[0].plot(t, xyz[:, j], color=colr, lw=1.4, label=nm)
+        ax[0].legend(fontsize=7, facecolor="#1d2026", labelcolor="#e8eaed", loc="upper right", ncol=3)
+        ax[0].set_title("TCP position [m] (world of the 3D view)", color="#e8eaed", fontsize=9)
     ax[1].plot(t, p["width"] * 1000, color="#c48cff", lw=1.5, label="est")
     if g is not None:
         ax[1].plot(t, g["width"][:len(t)] * 1000, color="#33cc5a", lw=1.2, ls="--", label="GT")
@@ -263,6 +267,19 @@ def main():
     if g is not None and "T_world_object" in g:
         import trimesh
         obj = Sw.add_mesh(trimesh.creation.box(extents=[0.04] * 3), (0.75, 0.15, 0.12, 1.0))
+    obj_nodes = []                                   # (node, poses) from <seq>/objects.npz (scripts/episode_preview.py)
+    opath = os.path.join(a.seq, "objects.npz")
+    if os.path.isfile(opath):
+        import trimesh, pyrender
+        oz = np.load(opath)
+        for nm, mp, P in zip(oz["names"], oz["meshes"], oz["poses"]):
+            md = np.load(str(mp))
+            tm = trimesh.Trimesh(md["vertices"], md["faces"], process=False)
+            if "colors" in md.files:
+                c = md["colors"].astype(np.uint8)
+                tm.visual.vertex_colors = np.c_[c, np.full(len(c), 255, np.uint8)]
+            obj_nodes.append((Sw.scene.add(pyrender.Mesh.from_trimesh(tm, smooth=False)), P))
+            print(f"object {nm}: {mp}")
     tcp_e = p["T_world_tcp"][:, :3, 3]
     valid = p["world_src"] > 0
     cams_w = g["T_world_cam"][:n] if g is not None else p["T_world_cam"]         # the recording head camera
@@ -312,6 +329,8 @@ def main():
             if obj is not None:
                 Sw.scene.set_pose(obj, g["T_world_object"][f])
         Sw.set_gripper("est", p["T_world_body"][f], tr, visible=src > 0)
+        for nd, P in obj_nodes:
+            Sw.scene.set_pose(nd, P[min(f, len(P) - 1)])
         for nd in cam_nodes:
             Sw.scene.set_pose(nd, cams_w[f])
         def world_panel(T_wv_, title, sub, ego=False):
