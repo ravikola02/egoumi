@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Score HaWoR SLAM head-camera trajectories (collection/head_slam.py output) against a rendered capture's ground truth.
+"""Score masked DROID-SLAM head-camera trajectories (collection/head_slam.py output) against a rendered capture's ground truth.
 
     python3 sim/check_slam.py --session data/raw/sim_capture --slam-cache data/output/sim_capture/slam_cache
 

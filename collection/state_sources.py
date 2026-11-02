@@ -253,7 +253,7 @@ class ArucoSource(_GripperBase):
     """Gripper pose reconstructed from the HEAD clip with the ArUco pipeline (umi_pipe.pose)."""
     name = "aruco"
 
-    def __init__(self, cut_sheet=None, sim_gt=None, camera=None, markers=None, cam_motion="hawor_slam",
+    def __init__(self, cut_sheet=None, sim_gt=None, camera=None, markers=None, cam_motion="droid_slam",
                  max_gap=5, ema_pos=0.18, ema_grip=1.0, ema_rot=None, slam_cache=None, hawor_python=None,
                  hawor_repo=None, slam_mask=True, slam_dilate=25, **kw):
         super().__init__(cut_sheet=cut_sheet, sim_gt=sim_gt)
@@ -274,11 +274,13 @@ class ArucoSource(_GripperBase):
             self.wrist = {"cam": wr, "T_cam_body": inv(np.asarray(wr["T_body_cam"], float))}
         self.model = GripperModel(markers or MARKER_CFG)
         self.P = P
-        if cam_motion not in ("hawor_slam", "sim_gt", "none"):
-            raise ValueError(f"unknown cam_motion {cam_motion!r}: hawor_slam | sim_gt | none")
+        if cam_motion == "hawor_slam":       # old name of the same option
+            cam_motion = "droid_slam"
+        if cam_motion not in ("droid_slam", "sim_gt", "none"):
+            raise ValueError(f"unknown cam_motion {cam_motion!r}: droid_slam | sim_gt | none")
         self.cam_motion = cam_motion
         self.max_gap = max_gap
-        # head-camera motion from HaWoR's SLAM (collection/head_slam.py, run in the HaWoR env)
+        # head-camera motion from masked DROID-SLAM (collection/head_slam.py, HaWoR's wrapper, run in the HaWoR env)
         import os
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.camera_path, self.markers_path = os.path.abspath(camera), markers
@@ -330,7 +332,7 @@ class ArucoSource(_GripperBase):
         T_wc_gt = self._gt_world_cam(idx) if self._gt is not None else None
         if self.cam_motion == "sim_gt":
             T_wc = T_wc_gt if T_wc_gt is not None else self._gt_world_cam(idx)
-        elif self.cam_motion == "hawor_slam":
+        elif self.cam_motion == "droid_slam":
             T_wc = self._slam_cameras(episode, n, fps, T_cam_body, src > 0)
         else:   # none: every row in its own camera frame (no world frame; flagged in info.json)
             T_wc = np.tile(np.eye(4), (n, 1, 1))
@@ -374,7 +376,7 @@ class ArucoSource(_GripperBase):
                                       "vs_gt_pos_mm_p90": round(float(np.percentile(e[:, 0], 90) * 1000), 2),
                                       "vs_gt_rot_deg_median": round(float(np.median(e[:, 1])), 3),
                                       "vs_gt_pos_mm_max": round(float(e[:, 0].max() * 1000), 2)})
-            if self.cam_motion == "hawor_slam":   # score the head-camera trajectory itself
+            if self.cam_motion == "droid_slam":   # score the head-camera trajectory itself
                 Cs, Cg = inv_batch(T_wc[:1])[0] @ T_wc, inv_batch(T_wc_gt[:1])[0] @ T_wc_gt
                 ce = np.array([pose_error(a, b) for a, b in zip(Cs, Cg)])
                 path = lambda C: np.linalg.norm(np.diff(C[:, :3, 3], axis=0), axis=1).sum()
@@ -403,7 +405,7 @@ class ArucoSource(_GripperBase):
         return state, derive_action_from_state(state)
 
     def _slam_cameras(self, episode, n: int, fps: float, T_cam_body: np.ndarray, valid: np.ndarray) -> np.ndarray:
-        """Head-camera camera-to-world per row from HaWoR's SLAM (collection/head_slam.py in the HaWoR env).
+        """Head-camera camera-to-world per row from masked DROID-SLAM (collection/head_slam.py in the HaWoR env).
         Cached per clip content + rows + mask settings under slam_cache/."""
         import os, json, subprocess, hashlib
         from episodes import video_hash
@@ -463,7 +465,7 @@ class ArucoSource(_GripperBase):
                                 "episode's first head-camera optical frame; eef frame as h2r_collection (+z approach = "
                                 "body +Y, +y jaw axis toward the thumb side = body -X, +x = body -Z); intrinsic-XYZ rpy. "
                                 "Head-camera motion: " +
-                                {"hawor_slam": "HaWoR's SLAM (masked DROID-SLAM + Metric3D scale, as h2r_collection), "
+                                {"droid_slam": "masked DROID-SLAM + Metric3D scale (run via HaWoR's SLAM wrapper, as h2r_collection), "
                                                "masking the gripper + hand at their ArUco pose.",
                                  "sim_gt": "SIM GROUND TRUTH standing in for SLAM.",
                                  "none": "NONE: each row is in its own head-camera frame (no world frame)."}[self.cam_motion] +

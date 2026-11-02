@@ -6,7 +6,7 @@
 Per frame: detect tags -> multi-tag PnP of the body -> jaw travel from the holder tags -> world pose
 T_world_tcp = T_world_cam . T_cam_body . T_body_tcp. Short gaps are interpolated, long gaps stay invalid.
 
---cam-source picks T_world_cam (what HaWoR's SLAM provides in the real pipeline):
+--cam-source picks T_world_cam (what masked DROID-SLAM provides in the real pipeline):
     gt     sim ground truth (<seq>/gt.npz) = perfect SLAM; isolates the marker pipeline
     table  per-frame table-tag pose (needs a table tag in view; the sim does not render one by default)
     none   camera frame only (T_world_cam = I)

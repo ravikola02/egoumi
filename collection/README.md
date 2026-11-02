@@ -2,7 +2,7 @@
 
 > Tested on the [h2r_collection](https://github.com/ravikola02/h2r_collection) Sample session, a rendered capture and
 > a real gripper capture (head + gripper camera). The gripper trajectory comes from `--state-source aruco` (head-camera
-> motion from HaWoR's SLAM); without it, datasets are video-only (or carry a flagged zero placeholder). On real
+> motion from masked DROID-SLAM); without it, datasets are video-only (or carry a flagged zero placeholder). On real
 > captures, set the gripper value with `scripts/gripper_minmax.py` until the gripper camera is calibrated.
 
 The same flow as h2r_collection's pipeline, with HaWoR removed:
@@ -48,8 +48,9 @@ h2r_collection used, in `configs/cameras_osmo_nano.yaml` (the default `--camera`
 
 ## Head-camera motion (SLAM)
 `--state-source aruco` places the gripper in each episode's first head-camera frame, so it needs the head camera's
-motion. `--cam-motion hawor_slam` (the default) uses the same SLAM as h2r_collection: HaWoR's `hawor_slam`
-(masked DROID-SLAM + Metric3D metric scale), called unchanged by `collection/head_slam.py` in the HaWoR env. Per
+motion. `--cam-motion droid_slam` (the default) runs masked DROID-SLAM with Metric3D metric scale, the same SLAM as
+h2r_collection. The approach comes from HaWoR, and `collection/head_slam.py` runs HaWoR's SLAM wrapper (`hawor_slam`,
+unchanged) in the HaWoR env. (`hawor_slam` is still accepted as the old name of the flag value.) Per
 episode it writes the head frames at the dataset-row timestamps, masks the gripper CAD and a hand/forearm stand-in at
 each row's ArUco pose (dilated 25 px; the markers are the strongest features in view, so SLAM must not track
 them), runs SLAM, and caches one camera pose per row under `<out>/../slam_cache/`.

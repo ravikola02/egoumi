@@ -9,7 +9,7 @@ Builds <collection>/preview/<episode>/ in the layout preview_gripper.py reads:
   extracted_images/   head clip frames at the dataset rows
   camera.yaml         head intrinsics at the clip size (configs/cameras_osmo_nano.yaml, or the sim's cameras.yaml)
   gripper_pose/       scripts/gripper_pose.py on those frames (body pose in the head camera), then:
-                      head-camera motion = the converter's HaWoR SLAM (<collection>/slam_cache), and
+                      head-camera motion = the converter's masked DROID-SLAM (<collection>/slam_cache), and
                       jaw width = the dataset's gripper value (gripper camera), width_open * (1 - gripper)
   gt.npz              (sim only) ground truth for the same rows, in the sim world
   objects.npz         (optional, --grasped-mesh / --container-mesh) object meshes placed FROM THE GRIPPER, not
@@ -79,7 +79,7 @@ def main():
     # 3. head motion (SLAM) + jaw width (dataset gripper value)
     hits = glob.glob(os.path.join(col, "slam_cache", f"{a.episode}_*", "cameras.npz"))
     if not hits:
-        sys.exit(f"no SLAM cache for {a.episode} in {col}/slam_cache (convert with --cam-motion hawor_slam)")
+        sys.exit(f"no SLAM cache for {a.episode} in {col}/slam_cache (convert with --cam-motion droid_slam)")
     slam = np.load(sorted(hits, key=os.path.getmtime)[-1])["T_world_cam"][:n]
     df = pd.concat([pd.read_parquet(f) for f in glob.glob(os.path.join(ds, "data", "**", "*.parquet"), recursive=True)])
     d = df[df.episode_index == info["episode_index"]].sort_values("frame_index")
@@ -95,7 +95,7 @@ def main():
         gt["travel"] = (a.width_open - gt["width"]) / 2
         np.savez_compressed(os.path.join(out, "gt.npz"), **gt)
         W = gt["T_world_cam"][0] @ slam                    # SLAM world (first head frame) -> sim world
-        src = "hawor_slam"
+        src = "droid_slam"
     else:
         W0 = slam
         up = np.array([(W0[k] @ pz["T_cam_body"][k])[:3, 2] for k in range(n)]).mean(0); up /= np.linalg.norm(up)
@@ -106,7 +106,7 @@ def main():
         c = (tcp.min(0) + tcp.max(0)) / 2
         L[:3, 3] = -np.array([c[0], c[1] - 0.15, tcp[kg, 2] - 0.03])
         W = L @ slam
-        src = "hawor_slam"
+        src = "droid_slam"
         print(f"levelled for display: head camera {W[0, 2, 3]:.2f} m above the table plane (approximate)")
     pz["T_world_cam"] = W
     pz["T_world_body"] = W @ pz["T_cam_body"]

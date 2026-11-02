@@ -99,9 +99,10 @@ def main(argv=None) -> int:
                                     "configs/cameras_osmo_nano.yaml, the h2r_collection DJI Osmo Nano setup; "
                                     "sim: <session>/sim_gt/cameras.yaml)")
     p.add_argument("--markers", help="marker layout yaml (default configs/gripper_markers.yaml)")
-    p.add_argument("--cam-motion", choices=["hawor_slam", "sim_gt", "none"], default="hawor_slam",
-                   help="head-camera motion for aruco: hawor_slam (default; HaWoR's masked DROID-SLAM + Metric3D in "
-                        "the HaWoR env, via HAWOR_PYTHON / HAWOR_REPO), sim_gt (sim ground truth), none (camera frame)")
+    p.add_argument("--cam-motion", choices=["droid_slam", "hawor_slam", "sim_gt", "none"], default="droid_slam",
+                   help="head-camera motion for aruco: droid_slam (default; masked DROID-SLAM + Metric3D scale, run through "
+                        "HaWoR's SLAM wrapper in the HaWoR env, via HAWOR_PYTHON / HAWOR_REPO; 'hawor_slam' = old "
+                        "name), sim_gt (sim ground truth), none (camera frame)")
     p.add_argument("--slam-cache", help="SLAM work/cache dir (default: <out>/../slam_cache)")
     p.add_argument("--slam-dilate", type=int, default=25, help="gripper+hand mask dilation for SLAM [px]")
     p.add_argument("--no-slam-mask", action="store_true", help="run SLAM without the gripper+hand mask (for tests)")

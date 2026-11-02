@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Head-camera motion for one episode with HaWoR's SLAM (masked DROID-SLAM + Metric3D scale), as h2r_collection.
+"""Head-camera motion for one episode with masked DROID-SLAM + Metric3D scale (HaWoR's SLAM wrapper), as h2r_collection.
 
-Runs in the HaWoR conda env (torch + DROID-SLAM); called by `--state-source aruco --cam-motion hawor_slam`:
+Runs in the HaWoR conda env (torch + DROID-SLAM); called by `--state-source aruco --cam-motion droid_slam`:
 
     ~/anaconda3/envs/hawor/bin/python collection/head_slam.py --head-clip ep_head.mp4 --rows 195 --fps 30 \
         --poses poses.npz --camera configs/cameras_osmo_nano.yaml --work slam_cache/ep --out cams.npz
@@ -107,7 +107,7 @@ def main():
              render_masks(T_cam_body[:n], valid[:n], K, w, h, a.dilate, a.markers))
     np.save(os.path.join(tr_dir, "model_masks.npy"), masks)
 
-    # 3. HaWoR SLAM, unchanged
+    # 3. masked DROID-SLAM via HaWoR's wrapper, unchanged
     class Args:  # the fields hawor_slam reads
         video_path = os.path.join(a.work, "head.mp4"); img_focal = float(K[0, 0]); input_type = "file"
     repo = os.path.abspath(a.hawor_repo)

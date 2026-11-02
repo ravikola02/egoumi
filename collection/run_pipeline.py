@@ -65,7 +65,7 @@ def main(argv=None) -> int:
     p.add_argument("--ema-pos", help="passed to the converter (aruco position EMA alpha, default 0.18)")
     p.add_argument("--ema-grip", help="passed to the converter (aruco gripper EMA alpha, default 1.0 = off)")
     p.add_argument("--ema-rot", help="passed to the converter (aruco orientation EMA alpha, default = --ema-pos)")
-    p.add_argument("--cam-motion", help="passed to the converter (aruco: hawor_slam (default) | sim_gt | none)")
+    p.add_argument("--cam-motion", help="passed to the converter (aruco: droid_slam (default) | sim_gt | none)")
     p.add_argument("--no-slam-mask", action="store_true", help="passed to the converter (SLAM without the mask)")
     p.add_argument("--fps", default="auto", help="auto = the slowest camera's rate, rounded to an integer")
     p.add_argument("--image-size", default="1280x720")
