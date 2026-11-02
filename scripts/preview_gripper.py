@@ -7,7 +7,7 @@ Reads <seq>/extracted_images, <seq>/camera.yaml, <seq>/gripper_pose/{poses.npz,d
 (sim), <seq>/gt.npz. Writes <seq>/preview/gripper_preview.mp4, metrics.json and timeline.png.
 
 Layout:  [ camera view: estimated gripper mesh over the frame, tags, TCP axes ] [ world view: est vs GT, trails ]
-         [ timeline: TCP position / rotation error, jaw width est vs GT, body tags used + invalid frames      ]
+         [ timeline: TCP position / rotation error (reprojection RMS without GT), jaw width est vs GT          ]
 Colours: purple = estimate (HaWoR's hand colour), green = ground truth, grey frames = interpolated, red = invalid.
 """
 import os, sys, glob, json, argparse, subprocess
@@ -153,7 +153,7 @@ def compute_metrics(p, g, model, n):
 
 
 def timeline(t, p, e_tcp, e_w, g, model, path, W=1920, H=360, dpi=100):
-    fig, ax = plt.subplots(1, 3, figsize=(W / dpi, H / dpi), dpi=dpi)
+    fig, ax = plt.subplots(1, 2, figsize=(W / dpi, H / dpi), dpi=dpi)
     fig.patch.set_facecolor("#14161a")
     for a in ax:
         a.set_facecolor("#1d2026"); a.tick_params(colors="#c9ced6", labelsize=8)
@@ -178,11 +178,8 @@ def timeline(t, p, e_tcp, e_w, g, model, path, W=1920, H=360, dpi=100):
         ax[1].plot(t, g["width"][:len(t)] * 1000, color="#33cc5a", lw=1.2, ls="--", label="GT")
     ws = p["width_src"]
     ax[1].scatter(t[ws == 1], p["width"][ws == 1] * 1000, s=6, color="#c48cff", zorder=3)
-    ax[1].set_title("jaw width [mm] (dots = jaw tag seen)", color="#e8eaed", fontsize=9)
+    ax[1].set_title("jaw width [mm]" + (" (dots = jaw tag seen)" if (ws == 1).mean() < 0.99 else ""), color="#e8eaed", fontsize=9)
     ax[1].legend(fontsize=7, facecolor="#1d2026", labelcolor="#e8eaed", loc="lower left")
-    ax[2].step(t, p["n_tags"], where="mid", color="#4c8dff", lw=1.3)
-    ax[2].set_title("body tags used (red = invalid, grey = interpolated)", color="#e8eaed", fontsize=9)
-    ax[2].set_ylim(-0.2, len(model.body_tags) + 0.5)
     for a in ax:
         a.set_xlim(t[0], t[-1]); a.set_xlabel("t [s]", color="#c9ced6", fontsize=8)
     fig.tight_layout(pad=0.6)
