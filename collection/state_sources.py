@@ -105,6 +105,24 @@ def fill_gaps(T: np.ndarray, src: np.ndarray, max_gap: int) -> None:
         i = j
 
 
+def reject_spikes(T: np.ndarray, src: np.ndarray, win: int = 3, max_mm: float = 50.0, max_deg: float = 20.0) -> np.ndarray:
+    """Boolean mask of measured poses (src == 1) that disagree with the median of their measured neighbours within
+    +-win rows (excluding themselves) by more than max_mm in position or max_deg in rotation. Isolated pose flips
+    (planar / single-tag PnP ambiguity) show up as 0.1-0.5 m, ~25 deg one-frame excursions."""
+    from scipy.spatial.transform import Rotation as R
+    n = len(T); out = np.zeros(n, bool); meas = np.where(src == 1)[0]
+    for k in meas:
+        nb = meas[(np.abs(meas - k) <= win) & (meas != k)]
+        if len(nb) < 2:
+            continue
+        p_med = np.median(T[nb, :3, 3], axis=0)
+        R_med = R.from_matrix(T[nb, :3, :3]).mean()
+        d_mm = np.linalg.norm(T[k, :3, 3] - p_med) * 1000
+        d_deg = np.degrees((R_med.inv() * R.from_matrix(T[k, :3, :3])).magnitude())
+        out[k] = d_mm > max_mm or d_deg > max_deg
+    return out
+
+
 def ema(x: np.ndarray, alpha: float) -> np.ndarray:
     """Causal EMA over axis 0, as h2r_collection's _ema: y[0] = x[0]; y[t] = alpha*x[t] + (1-alpha)*y[t-1].
     alpha >= 1 is a no-op. Lag ~ (1 - alpha) / alpha frames (alpha 0.164 -> 5.1 frames = 170 ms at 30 fps)."""
@@ -298,6 +316,7 @@ class ArucoSource(_GripperBase):
         self.ema_grip = self.ema_pos if ema_grip is None else float(ema_grip)
         # orientation: same alpha as position by default, so the whole pose carries one lag
         self.ema_rot = self.ema_pos if ema_rot is None else float(ema_rot)
+        self.spike_win, self.spike_mm, self.spike_deg = 3, 50.0, 20.0
 
     def compute(self, episode, n: int, fps: float):
         import cv2
@@ -328,6 +347,12 @@ class ArucoSource(_GripperBase):
                 if tr:
                     travel_wrist[k] = np.mean([v[0] for v in tr.values()])
             travel = np.where(np.isfinite(travel_wrist), travel_wrist, travel_head)
+
+        # single-frame pose flips (planar / single-tag ambiguity): a pose that disagrees with the median of its
+        # +-spike_win neighbours by more than spike_mm or spike_deg is dropped (src 0 -> interpolated below).
+        # Measured in the head-camera frame; head motion over 3 frames is ~1-4 cm, well under the threshold.
+        spikes = reject_spikes(T_cam_body @ self.model.T_body_tcp, src, self.spike_win, self.spike_mm, self.spike_deg)
+        src[spikes] = 0
 
         # head-camera motion (world = the episode's first head-camera frame either way)
         T_wc_gt = self._gt_world_cam(idx) if self._gt is not None else None
@@ -364,6 +389,7 @@ class ArucoSource(_GripperBase):
                              "pose_interpolated_pct": round(float((src == 2).mean() * 100), 1),
                              "pose_held_pct": round(held / n * 100, 1),
                              "single_tag_pct": round(float(((n_tags == 1) & (src == 1)).mean() * 100), 1),
+                             "pose_spikes_rejected": int(spikes.sum()),
                              "gripper_measured_pct": round(float(width_ok.mean() * 100), 1),
                              "gripper_from_wrist_pct": round(float(np.isfinite(travel_wrist).mean() * 100), 1),
                              "gripper_from_head_only_pct": round(float((np.isfinite(travel_head) &
