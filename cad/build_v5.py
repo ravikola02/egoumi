@@ -23,7 +23,7 @@ index pulls inward, each away from its own holder) and the spring opens them.
 
 Units mm, assembly frame (+Y fingers, X jaw travel, +Z up). Finger sizes and positions are ESTIMATES, as in v2.
 The fit (CLEAR, DETENT) is untested and printer-dependent: print one mount first and tune.
-Run: cd cad && ../.venv-cad/bin/python build_v5.py   -> out_v5/
+Run: cd cad && ../.venv-cad/bin/python build_v5.py   -> out_v5/ (STEP, STL), ../tmp_print/ (3MF, git-ignored)
 """
 import os
 import numpy as np
@@ -32,6 +32,7 @@ import build_v2 as V2
 
 _ROOT = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(_ROOT, "out_v5")
+PRINT_DIR = os.path.join(_ROOT, "..", "tmp_print")
 
 # ---------------- parameters (LEFT side; the right side is the mirror image) ----------------
 HOLDER_BOTTOM = V2.HOLDER_BOTTOM                      # underside of the holder's lower plate, z -21.4
@@ -261,7 +262,8 @@ def export_print():
         rec["n"], rec["v"] = n, t
         with open(os.path.join(OUT, f"{nm}.stl"), "wb") as fh:
             fh.write(nm.encode().ljust(80, b" ") + np.uint32(len(t)).tobytes() + rec.tobytes())
-    V3.write_3mf(os.path.join(OUT, "UMI_v5_holders_mounts_PLA.3mf"), "UMI_v5_holders_mounts_PLA", list(NEW), V3.pack(list(NEW)))
+    os.makedirs(PRINT_DIR, exist_ok=True)       # git-ignored: the 3MF is a local print file, not part of the design
+    V3.write_3mf(os.path.join(PRINT_DIR, "UMI_v5_holders_mounts_PLA.3mf"), "UMI_v5_holders_mounts_PLA", list(NEW), V3.pack(list(NEW)))
 
 
 if __name__ == "__main__":

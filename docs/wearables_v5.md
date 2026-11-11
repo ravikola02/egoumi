@@ -22,8 +22,8 @@ wide for smaller hands.
   holder); the spring opens the jaws. Loop length sets where the finger sits, so any hand picks its own open spread,
   and the loop takes any finger size.
 - Right hand: thumb in the left mount's rear window, index in the right mount's front window. Left hand: mirrored.
-- **Print**: the two finger holders (once) and the two strap mounts, `cad/out_v5/UMI_v5_holders_mounts_PLA.3mf` or the
-  STL / STEP files next to it. Every other v3 part, the marker layout and the jaw tags on the holder tops are
+- **Print**: the two finger holders (once) and the two strap mounts, STL / STEP in `cad/out_v5/`. The build also
+  writes a Bambu Studio project to `tmp_print/UMI_v5_holders_mounts_PLA.3mf` (git-ignored). Every other v3 part, the marker layout and the jaw tags on the holder tops are
   unchanged.
 
 ![mount slid off the dovetail](../cad/renders/v5_mount_slid_off.png)
