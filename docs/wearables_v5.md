@@ -36,7 +36,7 @@ The v3 rings as slide-on parts, at the v3 sizes and positions: thumb bore 22 mm 
   hooks 1 mm behind the rail's front end against pulling back. Press the tongue tip down to release.
 - Files: `ring_mount_thumb_left_holder` + `ring_mount_index_right_holder` (right hand, as v3) and the mirrored pair
   `ring_mount_thumb_right_holder` + `ring_mount_index_left_holder` (left hand) in `cad/out_v5/`; the build writes
-  `tmp_print/UMI_v5_ring_mounts_PLA.3mf` with the right-hand pair.
+  `tmp_print/UMI_v5_ring_mounts_PLA.3mf` with the right-hand pairs of both ring sets.
 - Not verified: the snap tongue (6 × 23 × 2 mm) is untested and printer-dependent, and the index ring no longer has
   v3's gusset up the holder's back face, so it is less stiff than the fused ring.
 
@@ -52,8 +52,8 @@ Rings for hands that cannot open to 90 mm, which still let the jaws close fully.
   above it.
 - The index ring hangs from a post at its outer edge, so nothing stands where the thumb passes over it.
 - Same joint as the other ring mounts (slide on from behind, snap tongue). Files: `ring_mount_small_*` in
-  `cad/out_v5/` (right-hand pair and mirrored left-hand pair); the build writes
-  `tmp_print/UMI_v5_ring_mounts_small_PLA.3mf` with the right-hand pair.
+  `cad/out_v5/` (right-hand pair and mirrored left-hand pair); the right-hand pair is in
+  `tmp_print/UMI_v5_ring_mounts_PLA.3mf` together with the standard rings.
 - Checked in CAD: straight stand-in fingers that fill the bores (to y 75 for the thumb) clear each other and both
   mounts over the whole travel. Not verified: whether an index 22 mm below the thumb is a comfortable pose, whether
   70 mm and these bores suit the hands in question (`SMALL` in `build_v5.py` sets all of them), and the stiffness of

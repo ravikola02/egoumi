@@ -372,10 +372,8 @@ def export_print():
             fh.write(nm.encode().ljust(80, b" ") + np.uint32(len(t)).tobytes() + rec.tobytes())
     os.makedirs(PRINT_DIR, exist_ok=True)       # git-ignored: the 3MF is a local print file, not part of the design
     V3.write_3mf(os.path.join(PRINT_DIR, "UMI_v5_holders_mounts_PLA.3mf"), "UMI_v5_holders_mounts_PLA", list(NEW), V3.pack(list(NEW)))
-    V3.write_3mf(os.path.join(PRINT_DIR, "UMI_v5_ring_mounts_PLA.3mf"), "UMI_v5_ring_mounts_PLA", list(RING_RH), V3.pack(list(RING_RH)))
-    V3.write_3mf(os.path.join(PRINT_DIR, "UMI_v5_ring_mounts_small_PLA.3mf"), "UMI_v5_ring_mounts_small_PLA", list(RING_SMALL_RH),
-                 V3.pack(list(RING_SMALL_RH)))
-
+    both = list(RING_RH + RING_SMALL_RH)             # standard and small-hand ring mounts (right-hand pairs), one plate
+    V3.write_3mf(os.path.join(PRINT_DIR, "UMI_v5_ring_mounts_PLA.3mf"), "UMI_v5_ring_mounts_PLA", both, V3.pack(both))
 
 if __name__ == "__main__":
     import sys
