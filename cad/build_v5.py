@@ -114,6 +114,56 @@ def make_mount():
     return block.fuse(bridge).fuse(fin).cut(channel).clean()
 
 
+# ---------------- ring mounts: the v3 rings as slide-on parts on the same dovetail ----------------
+# v3 sizes and positions, in LEFT-holder coordinates (the index ring is modelled mirrored, then flipped to the right).
+RINGS = dict(thumb=dict(xc=V2.THB["x_open"], zc=V2.THB["z"], ri=V2.THB["ri"], wall=V2.THB["wall"], y=(V2.THB["y0"], V2.THB["y1"])),
+             index=dict(xc=-V2.IDX["x_open"], zc=V2.IDX["z"], ri=V2.IDX["ri"], wall=V2.IDX["wall"], y=(V2.IDX["y0"], V2.IDX["y1"])))
+LATCH = dict(w=6.0, len=23.0, t=2.0, slit=0.6, hook=1.0, play=0.3)   # snap tongue in the channel floor, hook behind the rail
+
+
+def ring_mount(kind):
+    """Slides onto the rail from BEHIND (the thumb ring rises above the holder's underside, so it cannot pass under
+    the lower plate from the front). Closed rear end = stop against pushing forward; a snap tongue in the floor hooks
+    behind the rail's front end = lock against pulling back. Press the tongue tip down to release."""
+    d, m, r, L = DOVE, MOUNT, RINGS[kind], LATCH
+    half = d["w_tip"] / 2 + CLEAR * 1.2 + m["wall"]
+    x0, x1 = d["xc"] - half, d["xc"] + half
+    y_stop = d["y0"] - CLEAR                       # rear stop face
+    block = box(x0, x1, y_stop - m["stop"], Y_FRONT, Z_BLOCK, Z_TOP)
+    ro = r["ri"] + r["wall"]
+    ring = cq.Solid.makeCylinder(ro, r["y"][1] - r["y"][0], cq.Vector(r["xc"], r["y"][0], r["zc"]), cq.Vector(0, 1, 0))
+    if kind == "thumb":      # v2 arm, now running back from the channel block
+        link = box(V2.ARM["x0"], V2.ARM["x1"], V2.ARM["y0"], y_stop, V2.ARM["z0"], Z_TOP)
+    else:                    # block extended rearward and inward to the ring
+        link = box(x0, r["xc"] - r["ri"] - 0.5, r["y"][0], y_stop, Z_BLOCK, Z_TOP).fuse(
+            box(x1 - 1.0, r["xc"] - r["ri"] - 0.5, y_stop - 1.0, r["y"][1], Z_BLOCK, Z_TOP))
+    try:                     # round the ring's outer edges before it is joined, its bore edges after
+        ring = ring.fillet(1.0, [e for e in ring.Edges() if e.geomType() == "CIRCLE"])
+    except Exception as ex:
+        print(f"{kind} ring outer rounding skipped:", ex)
+    body = block.fuse(link).fuse(ring)
+    body = body.cut(cq.Solid.makeCylinder(r["ri"], r["y"][1] - r["y"][0] + 2.0, cq.Vector(r["xc"], r["y"][0] - 1.0, r["zc"]),
+                                          cq.Vector(0, 1, 0))).clean()   # bore: the ring only, never the channel block
+    for rad, fil in ((r["ri"], 1.2),):
+        edges = [e for e in body.Edges() if e.geomType() == "CIRCLE" and abs(e.radius() - rad) < 1e-3]
+        try:
+            body = body.fillet(fil, edges)
+        except Exception as ex:
+            print(f"{kind} ring edge rounding (r={rad}) skipped:", ex)
+    channel = dovetail(y_stop, Y_FRONT + 10.0, grow=CLEAR, top=5.0).fuse(detent(DETENT["r"] + 0.1))
+    body = body.cut(channel)
+    # snap tongue: two slits through the floor, thinned from below, hook with a lead-in ramp at its tip
+    ty0 = Y_FRONT - L["len"]
+    for sx in (-1, 1):
+        xs = d["xc"] + sx * L["w"] / 2
+        body = body.cut(box(min(xs, xs + sx * L["slit"]), max(xs, xs + sx * L["slit"]), ty0, Y_FRONT + 1, Z_BLOCK - 1, Z_FLOOR + 0.01))
+    body = body.cut(box(d["xc"] - L["w"] / 2, d["xc"] + L["w"] / 2, ty0, Y_FRONT + 1, Z_BLOCK - 1, Z_FLOOR - L["t"]))
+    yh = d["y1"] + L["play"]
+    hook = cq.Workplane("YZ").polyline([(yh, Z_FLOOR - 0.1), (yh, Z_FLOOR + L["hook"]), (yh + 0.7, Z_FLOOR + L["hook"]),
+                                        (Y_FRONT, Z_FLOOR + 0.1), (Y_FRONT, Z_FLOOR - 0.1)]).close().extrude(L["w"] - 0.4).val()
+    return body.fuse(hook.translate(cq.Vector(d["xc"] - L["w"] / 2 + 0.2, 0, 0))).clean()
+
+
 def fill_top_recess(holder, sx):
     """v3: fill the 0.3 mm frame groove on the top face so the jaw tag sits flat."""
     x0, x1 = sorted((sx * 50.0, sx * 70.0))
@@ -125,6 +175,12 @@ mount_L = make_mount()
 mount_R = mount_L.mirror("YZ")
 holder_L = fill_top_recess(V2.P["finger_holder_left"].fuse(rail_L).clean(), -1)
 holder_R = fill_top_recess(V2.P["finger_holder_right"].fuse(rail_L.mirror("YZ")).clean(), +1)
+
+# ring mounts. Right hand (as v3): thumb on the left holder, index on the right. Left hand: the mirrored pair.
+_rt, _ri = ring_mount("thumb"), ring_mount("index")
+ring_mounts = {"ring_mount_thumb_left_holder": (_rt, +1), "ring_mount_index_right_holder": (_ri.mirror("YZ"), -1),
+               "ring_mount_thumb_right_holder": (_rt.mirror("YZ"), -1), "ring_mount_index_left_holder": (_ri, +1)}
+RING_RH = ("ring_mount_thumb_left_holder", "ring_mount_index_right_holder")
 
 # top cover as v3 (mirror flaps removed); unchanged, shown for context only
 _keep = cq.Solid.makeBox(70, 400, 200, cq.Vector(-35, -200, 19.8))
@@ -239,11 +295,47 @@ def check():
     return ok
 
 
+def check_rings():
+    """ring mounts: the joint (seated / locked / path in from behind) and collisions over the jaw travel."""
+    ok = True
+    hold = {+1: holder_L, -1: holder_R}
+    for nm, (shape, sg) in ring_mounts.items():
+        ov = {lab: inter(shape.translate(cq.Vector(*v)), hold[sg]) for lab, v in
+              (("seated", (0, 0, 0)), ("pushed forward 1", (0, 1, 0)), ("pulled back 1", (0, -1, 0)), ("down 1", (0, 0, -1)),
+               ("inward 1", (sg, 0, 0)), ("outward 1", (-sg, 0, 0)))}
+        locked = ov["seated"] < 0.05 and all(v > 0.05 for k, v in ov.items() if k != "seated")
+        ok &= locked
+        print(f"{nm:30s} valid={shape.isValid()} solids={len(shape.Solids())} joint: " + ", ".join(f"{k} {v:.1f}" for k, v in ov.items())
+              + ("" if locked else "  <-- NOT LOCKED"))
+    for nm in RING_RH:     # slide-in path from behind with the jaws open (the latch hook is meant to touch the rail on the way)
+        shape, sg = ring_mounts[nm]
+        S = posed(0.0)
+        hits = [f"{m} at -{dy}: {inter(shape.translate(cq.Vector(0, -dy, 0)), s):.1f}" for dy in (10, 25, 40) for m, s in S.items()
+                if not m.startswith(("finger_holder", "strap_mount")) and inter(shape.translate(cq.Vector(0, -dy, 0)), s) > 0.05]
+        print(f"{nm:30s} slide-in path:", hits if hits else "clear of every other part")
+        ok &= not hits
+    for T in (0.0, 12.0, 24.0, V2.T_CLOSE, 38.0):
+        S = posed(T)
+        hits = []
+        for nm in RING_RH:
+            shape, sg = ring_mounts[nm]
+            a = shape.translate(cq.Vector(sg * T, 0, 0))
+            hits += [f"{nm} x {m}: {inter(a, s):.1f} mm3" for m, s in S.items()
+                     if not m.startswith("strap_mount") and m != ("finger_holder_left" if sg > 0 else "finger_holder_right") and inter(a, s) > 0.05]
+        b = ring_mounts[RING_RH[0]][0].translate(cq.Vector(T, 0, 0)), ring_mounts[RING_RH[1]][0].translate(cq.Vector(-T, 0, 0))
+        if inter(*b) > 0.05:
+            hits.append(f"thumb ring x index ring: {inter(*b):.1f} mm3")
+        ok &= not hits
+        print(f"rings T={T:4.1f}:", hits if hits else "no collisions")
+    return ok
+
+
 def export_print():
     """print-oriented STLs + one Bambu Studio 3MF for the four new parts, with v3's orientation, packing and settings."""
     import build_v3 as V3
-    for nm in NEW:
-        V, F = V3.mesh(parts[nm])
+    shapes = {**{n: parts[n] for n in NEW}, **{n: s for n, (s, _) in ring_mounts.items()}}
+    for nm, shape in shapes.items():
+        V, F = V3.mesh(shape)
         name, Rm, ov, bed = V3.orient(V, F)
         W = V @ Rm.T
         if np.linalg.det(Rm) < 0:
@@ -264,6 +356,7 @@ def export_print():
             fh.write(nm.encode().ljust(80, b" ") + np.uint32(len(t)).tobytes() + rec.tobytes())
     os.makedirs(PRINT_DIR, exist_ok=True)       # git-ignored: the 3MF is a local print file, not part of the design
     V3.write_3mf(os.path.join(PRINT_DIR, "UMI_v5_holders_mounts_PLA.3mf"), "UMI_v5_holders_mounts_PLA", list(NEW), V3.pack(list(NEW)))
+    V3.write_3mf(os.path.join(PRINT_DIR, "UMI_v5_ring_mounts_PLA.3mf"), "UMI_v5_ring_mounts_PLA", list(RING_RH), V3.pack(list(RING_RH)))
 
 
 if __name__ == "__main__":
@@ -283,12 +376,14 @@ if __name__ == "__main__":
     for sp in SPREADS:
         print(f"open spread {sp:5.1f} mm (v3: 90): fingertip gap when the stand-in fingers touch: "
               f"{meet_gap(sp):4.1f} mm staggered, {meet_gap(sp, 0.0):4.1f} mm if they met at the same height")
-    ok = check()
+    ok = check() & check_rings()
     asm = cq.Assembly(name="umi_pinch_v5")
     for nm, s in parts.items():
         asm.add(s, name=nm)
     asm.export(os.path.join(OUT, "umi_pinch_v5_assembly.step"))
     for nm in NEW:
         cq.exporters.export(parts[nm], os.path.join(OUT, f"{nm}.step"))
+    for nm, (shape, _) in ring_mounts.items():
+        cq.exporters.export(shape, os.path.join(OUT, f"{nm}.step"))
     export_print()
     sys.exit(0 if ok else 1)

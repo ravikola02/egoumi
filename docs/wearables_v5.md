@@ -28,6 +28,20 @@ wide for smaller hands.
 
 ![mount slid off the dovetail](../cad/renders/v5_mount_slid_off.png)
 
+## Ring mounts (same rail)
+The v3 rings as slide-on parts, at the v3 sizes and positions: thumb bore 22 mm at x −50, z −27, y 33–49; index bore
+20 mm at x 40, z −36.5, y 62–80; 3 mm walls; 90 mm apart with the jaws open. The fixed spacing comes back with them.
+- They slide on from **behind** (the thumb ring rises above the holder's underside, so it cannot pass under the lower
+  plate from the front). The closed rear end is the stop against pushing forward; a snap tongue in the channel floor
+  hooks 1 mm behind the rail's front end against pulling back. Press the tongue tip down to release.
+- Files: `ring_mount_thumb_left_holder` + `ring_mount_index_right_holder` (right hand, as v3) and the mirrored pair
+  `ring_mount_thumb_right_holder` + `ring_mount_index_left_holder` (left hand) in `cad/out_v5/`; the build writes
+  `tmp_print/UMI_v5_ring_mounts_PLA.3mf` with the right-hand pair.
+- Not verified: the snap tongue (6 × 23 × 2 mm) is untested and printer-dependent, and the index ring no longer has
+  v3's gusset up the holder's back face, so it is less stiff than the fused ring.
+
+![ring mounts](../cad/renders/v5_rings_rear.png) ![ring mounts slid off](../cad/renders/v5_rings_slid_off.png)
+
 ## Closing fully
 Each finger travels the full jaw travel (36 mm per side) wherever its strap is anchored, so a thumb and index at the
 same height meet early when the open spread is narrow. Moving the anchors outward does not change that. What does is
