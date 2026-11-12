@@ -42,6 +42,25 @@ The v3 rings as slide-on parts, at the v3 sizes and positions: thumb bore 22 mm 
 
 ![ring mounts](../cad/renders/v5_rings_rear.png) ![ring mounts slid off](../cad/renders/v5_rings_slid_off.png)
 
+## Small-hand ring mounts (same rail)
+Rings for hands that cannot open to 90 mm, which still let the jaws close fully.
+- Rings 70 mm apart with the jaws open (thumb x −40, index x 30), bores 20 mm (thumb) and 18 mm (index), 3 mm walls,
+  same y positions as v3.
+- Rigid rings make each finger travel the full 36 mm, so from 70 mm the thumb ends 2 mm past the index. To let that
+  happen the index ring sits 22 mm below the thumb ring (thumb z −26.5, index z −48.5; v3: −27 / −36.5): closed, the
+  thumb is directly over the index, as in a key pinch. The thumb ring cannot go higher, the grip's top flange is
+  above it.
+- The index ring hangs from a post at its outer edge, so nothing stands where the thumb passes over it.
+- Same joint as the other ring mounts (slide on from behind, snap tongue). Files: `ring_mount_small_*` in
+  `cad/out_v5/` (right-hand pair and mirrored left-hand pair); the build writes
+  `tmp_print/UMI_v5_ring_mounts_small_PLA.3mf` with the right-hand pair.
+- Checked in CAD: straight stand-in fingers that fill the bores (to y 75 for the thumb) clear each other and both
+  mounts over the whole travel. Not verified: whether an index 22 mm below the thumb is a comfortable pose, whether
+  70 mm and these bores suit the hands in question (`SMALL` in `build_v5.py` sets all of them), and the stiffness of
+  the 6 mm post.
+
+![small-hand rings, open](../cad/renders/v5_small_rings_open.png) ![small-hand rings, closed](../cad/renders/v5_small_rings_closed.png)
+
 ## Closing fully
 Each finger travels the full jaw travel (36 mm per side) wherever its strap is anchored, so a thumb and index at the
 same height meet early when the open spread is narrow. Moving the anchors outward does not change that. What does is

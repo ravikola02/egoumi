@@ -118,6 +118,14 @@ def make_mount():
 # v3 sizes and positions, in LEFT-holder coordinates (the index ring is modelled mirrored, then flipped to the right).
 RINGS = dict(thumb=dict(xc=V2.THB["x_open"], zc=V2.THB["z"], ri=V2.THB["ri"], wall=V2.THB["wall"], y=(V2.THB["y0"], V2.THB["y1"])),
              index=dict(xc=-V2.IDX["x_open"], zc=V2.IDX["z"], ri=V2.IDX["ri"], wall=V2.IDX["wall"], y=(V2.IDX["y0"], V2.IDX["y1"])))
+# small-hand rings: closer together, smaller bores, and far enough apart in HEIGHT that the thumb passes over the
+# index. With rigid rings each finger travels the full jaw travel, so a 70 mm open spread ends with the thumb 2 mm
+# past the index: they can only close if one is above the other by a finger radius plus the other ring's outer radius.
+SMALL = dict(spread=70.0, thumb_ri=10.0, index_ri=9.0, wall=3.0, thumb_z=-26.5, stagger=22.0)
+_c = (V2.THB["x_open"] + V2.IDX["x_open"]) / 2      # v3 centre line between the rings (x -5)
+RINGS["thumb_small"] = dict(xc=_c - SMALL["spread"] / 2, zc=SMALL["thumb_z"], ri=SMALL["thumb_ri"], wall=SMALL["wall"], y=RINGS["thumb"]["y"])
+RINGS["index_small"] = dict(xc=-(_c + SMALL["spread"] / 2), zc=SMALL["thumb_z"] - SMALL["stagger"], ri=SMALL["index_ri"],
+                            wall=SMALL["wall"], y=RINGS["index"]["y"])
 LATCH = dict(w=6.0, len=23.0, t=2.0, slit=0.6, hook=1.0, play=0.3)   # snap tongue in the channel floor, hook behind the rail
 
 
@@ -134,22 +142,25 @@ def ring_mount(kind):
     ring = cq.Solid.makeCylinder(ro, r["y"][1] - r["y"][0], cq.Vector(r["xc"], r["y"][0], r["zc"]), cq.Vector(0, 1, 0))
     if kind == "thumb":      # v2 arm, now running back from the channel block
         link = box(V2.ARM["x0"], V2.ARM["x1"], V2.ARM["y0"], y_stop, V2.ARM["z0"], Z_TOP)
-    else:                    # block extended rearward and inward to the ring
+    elif kind == "thumb_small":   # same arm, moved inward with the ring
+        link = box(r["xc"] - ro - 9.0, r["xc"] - ro + 3.0, V2.ARM["y0"], y_stop, V2.ARM["z0"], Z_TOP)
+    elif kind == "index":    # block extended rearward and inward to the ring
         link = box(x0, r["xc"] - r["ri"] - 0.5, r["y"][0], y_stop, Z_BLOCK, Z_TOP).fuse(
             box(x1 - 1.0, r["xc"] - r["ri"] - 0.5, y_stop - 1.0, r["y"][1], Z_BLOCK, Z_TOP))
-    try:                     # round the ring's outer edges before it is joined, its bore edges after
-        ring = ring.fillet(1.0, [e for e in ring.Edges() if e.geomType() == "CIRCLE"])
-    except Exception as ex:
-        print(f"{kind} ring outer rounding skipped:", ex)
-    body = block.fuse(link).fuse(ring)
-    body = body.cut(cq.Solid.makeCylinder(r["ri"], r["y"][1] - r["y"][0] + 2.0, cq.Vector(r["xc"], r["y"][0] - 1.0, r["zc"]),
-                                          cq.Vector(0, 1, 0))).clean()   # bore: the ring only, never the channel block
-    for rad, fil in ((r["ri"], 1.2),):
-        edges = [e for e in body.Edges() if e.geomType() == "CIRCLE" and abs(e.radius() - rad) < 1e-3]
+    else:                    # low ring: the block reaches only to the ring's OUTER edge and a post drops to it there,
+        xe = r["xc"] - ro    # so nothing stands where the thumb passes over the index
+        link = box(x0, xe, r["y"][0], y_stop, Z_BLOCK, Z_TOP).fuse(box(x1 - 1.0, xe, y_stop - 1.0, r["y"][1], Z_BLOCK, Z_TOP))
+        link = link.fuse(box(xe - 6.0, xe, r["y"][0], r["y"][1], r["zc"] - 5.0, Z_TOP))
+        link = link.fuse(box(xe - 1.0, r["xc"] - r["ri"] - 0.3, r["y"][0], r["y"][1], r["zc"] - 5.0, r["zc"] + 5.0))
+    # the ring is bored and rounded on its own (outer edges 1.0, bore edges 1.2, as v3), then joined
+    bore = cq.Solid.makeCylinder(r["ri"], r["y"][1] - r["y"][0] + 2.0, cq.Vector(r["xc"], r["y"][0] - 1.0, r["zc"]), cq.Vector(0, 1, 0))
+    ring = ring.cut(bore)
+    for rad, fil in ((ro, 1.0), (r["ri"], 1.2)):
         try:
-            body = body.fillet(fil, edges)
+            ring = ring.fillet(fil, [e for e in ring.Edges() if e.geomType() == "CIRCLE" and abs(e.radius() - rad) < 1e-3])
         except Exception as ex:
-            print(f"{kind} ring edge rounding (r={rad}) skipped:", ex)
+            print(f"{kind} ring rounding (r={rad}) skipped:", ex)
+    body = block.fuse(link.cut(bore)).fuse(ring).clean()     # the bore never reaches the channel block
     channel = dovetail(y_stop, Y_FRONT + 10.0, grow=CLEAR, top=5.0).fuse(detent(DETENT["r"] + 0.1))
     body = body.cut(channel)
     # snap tongue: two slits through the floor, thinned from below, hook with a lead-in ramp at its tip
@@ -181,6 +192,10 @@ _rt, _ri = ring_mount("thumb"), ring_mount("index")
 ring_mounts = {"ring_mount_thumb_left_holder": (_rt, +1), "ring_mount_index_right_holder": (_ri.mirror("YZ"), -1),
                "ring_mount_thumb_right_holder": (_rt.mirror("YZ"), -1), "ring_mount_index_left_holder": (_ri, +1)}
 RING_RH = ("ring_mount_thumb_left_holder", "ring_mount_index_right_holder")
+_st, _si = ring_mount("thumb_small"), ring_mount("index_small")
+ring_mounts.update({"ring_mount_small_thumb_left_holder": (_st, +1), "ring_mount_small_index_right_holder": (_si.mirror("YZ"), -1),
+                    "ring_mount_small_thumb_right_holder": (_st.mirror("YZ"), -1), "ring_mount_small_index_left_holder": (_si, +1)})
+RING_SMALL_RH = ("ring_mount_small_thumb_left_holder", "ring_mount_small_index_right_holder")
 
 # top cover as v3 (mirror flaps removed); unchanged, shown for context only
 _keep = cq.Solid.makeBox(70, 400, 200, cq.Vector(-35, -200, 19.8))
@@ -307,26 +322,27 @@ def check_rings():
         ok &= locked
         print(f"{nm:30s} valid={shape.isValid()} solids={len(shape.Solids())} joint: " + ", ".join(f"{k} {v:.1f}" for k, v in ov.items())
               + ("" if locked else "  <-- NOT LOCKED"))
-    for nm in RING_RH:     # slide-in path from behind with the jaws open (the latch hook is meant to touch the rail on the way)
+    for nm in RING_RH + RING_SMALL_RH:     # slide-in path from behind with the jaws open (the latch hook is meant to touch the rail on the way)
         shape, sg = ring_mounts[nm]
         S = posed(0.0)
         hits = [f"{m} at -{dy}: {inter(shape.translate(cq.Vector(0, -dy, 0)), s):.1f}" for dy in (10, 25, 40) for m, s in S.items()
                 if not m.startswith(("finger_holder", "strap_mount")) and inter(shape.translate(cq.Vector(0, -dy, 0)), s) > 0.05]
         print(f"{nm:30s} slide-in path:", hits if hits else "clear of every other part")
         ok &= not hits
-    for T in (0.0, 12.0, 24.0, V2.T_CLOSE, 38.0):
+    for label, pair in (("rings", RING_RH), ("small rings", RING_SMALL_RH)):
+      for T in (0.0, 12.0, 24.0, V2.T_CLOSE, 38.0):
         S = posed(T)
         hits = []
-        for nm in RING_RH:
+        for nm in pair:
             shape, sg = ring_mounts[nm]
             a = shape.translate(cq.Vector(sg * T, 0, 0))
             hits += [f"{nm} x {m}: {inter(a, s):.1f} mm3" for m, s in S.items()
                      if not m.startswith("strap_mount") and m != ("finger_holder_left" if sg > 0 else "finger_holder_right") and inter(a, s) > 0.05]
-        b = ring_mounts[RING_RH[0]][0].translate(cq.Vector(T, 0, 0)), ring_mounts[RING_RH[1]][0].translate(cq.Vector(-T, 0, 0))
+        b = ring_mounts[pair[0]][0].translate(cq.Vector(T, 0, 0)), ring_mounts[pair[1]][0].translate(cq.Vector(-T, 0, 0))
         if inter(*b) > 0.05:
             hits.append(f"thumb ring x index ring: {inter(*b):.1f} mm3")
         ok &= not hits
-        print(f"rings T={T:4.1f}:", hits if hits else "no collisions")
+        print(f"{label} T={T:4.1f}:", hits if hits else "no collisions")
     return ok
 
 
@@ -357,6 +373,8 @@ def export_print():
     os.makedirs(PRINT_DIR, exist_ok=True)       # git-ignored: the 3MF is a local print file, not part of the design
     V3.write_3mf(os.path.join(PRINT_DIR, "UMI_v5_holders_mounts_PLA.3mf"), "UMI_v5_holders_mounts_PLA", list(NEW), V3.pack(list(NEW)))
     V3.write_3mf(os.path.join(PRINT_DIR, "UMI_v5_ring_mounts_PLA.3mf"), "UMI_v5_ring_mounts_PLA", list(RING_RH), V3.pack(list(RING_RH)))
+    V3.write_3mf(os.path.join(PRINT_DIR, "UMI_v5_ring_mounts_small_PLA.3mf"), "UMI_v5_ring_mounts_small_PLA", list(RING_SMALL_RH),
+                 V3.pack(list(RING_SMALL_RH)))
 
 
 if __name__ == "__main__":
