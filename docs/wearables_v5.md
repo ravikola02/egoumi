@@ -28,6 +28,17 @@ wide for smaller hands.
 
 ![mount slid off the dovetail](../cad/renders/v5_mount_slid_off.png)
 
+## M4 finger bolts
+The three through-bolts per holder that clamp the soft finger (at x 75 / 74.4 / 45, y 83 / 118 / 82.5) are M4 instead
+of M3: 4.5 mm clearance holes (was 3.6), 8.2 mm head counterbores (was 6.5) with the same floor height, and pockets
+for 7 mm hex nuts (7.8 mm across flats, 3.4 mm deep; was 6.3 / 3.1). The lower plate is thickened to a 6.5 mm radius
+around each pocket, because its edge was only 5 mm from the bolt axis. The soft finger's holes are already 4.0 mm, so
+the TPU fingers are reused. An M4 x 35 screw ends flush with the underside (same stack as M3 x 35).
+- Not changed: the four 3.6 mm holes at (50/60, 53.5/68.5) that screw into the linear-rail carriage, whose threads
+  are M3 on the Stanford MGN9 carriage. `M4_CARRIAGE_HOLES` in `build_v5.py` enlarges them too.
+- 2.5 mm of plate is left above each nut (was 2.8); untested in print.
+- Print file: `tmp_print/UMI_v5_holders_M4_PLA.3mf` (the two holders).
+
 ## Ring mounts (same rail)
 The v3 rings as slide-on parts, at the v3 sizes and positions: thumb bore 22 mm at x −50, z −27, y 33–49; index bore
 20 mm at x 40, z −36.5, y 62–80; 3 mm walls; 90 mm apart with the jaws open. The fixed spacing comes back with them.

@@ -26,6 +26,7 @@ The fit (CLEAR, DETENT) is untested and printer-dependent: print one mount first
 Run: cd cad && ../.venv-cad/bin/python build_v5.py   -> out_v5/ (STEP, STL), ../tmp_print/ (3MF, git-ignored)
 """
 import os
+import math
 import numpy as np
 import cadquery as cq
 import build_v2 as V2
@@ -181,11 +182,60 @@ def fill_top_recess(holder, sx):
     return holder.fuse(cq.Solid.makeBox(x1 - x0, 20.0, 0.31, cq.Vector(x0, 77.5, 16.3))).clean()
 
 
+# ---------------- M4 finger bolts (were M3) ----------------
+# The three through-bolts with nut pockets that clamp the soft finger between the holder's two plates. The soft
+# finger's own holes are already 4.0 mm. NOT changed: the four holes at (50/60, 53.5/68.5), which screw into the
+# linear-rail carriage; set M4_CARRIAGE_HOLES only if your carriage has M4 threads (the Stanford MGN9 one is M3).
+BOLTS = ((-75.0, 83.0), (-74.4, 118.0), (-45.0, 82.5))          # LEFT holder; x mirrored on the right
+CARRIAGE = ((-60.0, 53.5), (-60.0, 68.5), (-50.0, 53.5), (-50.0, 68.5))
+M4 = dict(hole=4.5,                      # clearance hole (M3 was 3.6)
+          head_d=8.2, head_z=13.6,       # counterbore for a socket or button head (M3: 6.5), same floor height as M3
+          nut_af=7.8, nut_depth=3.4,     # pocket for a 7 mm hex nut, same 0.8 mm clearance as the M3 pocket (6.3 for 5.5)
+          boss_r=6.5)                    # the lower plate is thickened outward around each nut pocket (edge was 5 mm away)
+M4_CARRIAGE_HOLES = False
+PLATE_LOW = (HOLDER_BOTTOM, -15.5)       # lower plate, z range
+Z_HOLDER_TOP = 16.6
+
+
+def cyl_z(x, y, r, z0, z1):
+    return cq.Solid.makeCylinder(r, z1 - z0, cq.Vector(x, y, z0), cq.Vector(0, 0, 1))
+
+
+def hex_z(x, y, af, z0, z1):
+    """hex prism with two flats facing +-X (as the Stanford M3 pockets)."""
+    R = af / math.sqrt(3.0)
+    pts = [(x + R * math.cos(math.radians(30 + 60 * k)), y + R * math.sin(math.radians(30 + 60 * k))) for k in range(6)]
+    return cq.Workplane("XY").polyline(pts).close().extrude(z1 - z0).val().translate(cq.Vector(0, 0, z0))
+
+
+def bolt_bosses(sx):
+    b = None
+    for x, y in BOLTS:
+        c = cyl_z(-sx * x, y, M4["boss_r"], *PLATE_LOW)
+        b = c if b is None else b.fuse(c)
+    return b
+
+
+def m4_bolts(holder, sx):
+    """sx = -1 left holder, +1 right holder."""
+    h = holder.fuse(bolt_bosses(sx)).clean()
+    for x, y in BOLTS:
+        x = -sx * x
+        h = h.cut(cyl_z(x, y, M4["hole"] / 2, HOLDER_BOTTOM - 1, Z_HOLDER_TOP + 1))
+        h = h.cut(cyl_z(x, y, M4["head_d"] / 2, M4["head_z"], Z_HOLDER_TOP + 1))
+        h = h.cut(hex_z(x, y, M4["nut_af"], HOLDER_BOTTOM - 1, HOLDER_BOTTOM + M4["nut_depth"]))
+    if M4_CARRIAGE_HOLES:
+        for x, y in CARRIAGE:
+            x = -sx * x
+            h = h.cut(cyl_z(x, y, M4["hole"] / 2, 8.0, Z_HOLDER_TOP + 1)).cut(cyl_z(x, y, M4["head_d"] / 2, 13.3, Z_HOLDER_TOP + 1))
+    return h.clean()
+
+
 rail_L = make_rail()
 mount_L = make_mount()
 mount_R = mount_L.mirror("YZ")
-holder_L = fill_top_recess(V2.P["finger_holder_left"].fuse(rail_L).clean(), -1)
-holder_R = fill_top_recess(V2.P["finger_holder_right"].fuse(rail_L.mirror("YZ")).clean(), +1)
+holder_L = m4_bolts(fill_top_recess(V2.P["finger_holder_left"].fuse(rail_L).clean(), -1), -1)
+holder_R = m4_bolts(fill_top_recess(V2.P["finger_holder_right"].fuse(rail_L.mirror("YZ")).clean(), +1), +1)
 
 # ring mounts. Right hand (as v3): thumb on the left holder, index on the right. Left hand: the mirrored pair.
 _rt, _ri = ring_mount("thumb"), ring_mount("index")
@@ -287,6 +337,7 @@ def check():
     already overlap the gears, linkages and slider in this pose model (those parts are not animated), as in v2."""
     L, R = ("finger_holder_left", "strap_mount_left"), ("finger_holder_right", "strap_mount_right")
     added = {"rail left": (rail_L, +1, L[:1]), "rail right": (rail_L.mirror("YZ"), -1, R[:1]),
+             "M4 bosses left": (bolt_bosses(-1), +1, L[:1]), "M4 bosses right": (bolt_bosses(+1), -1, R[:1]),
              "mount left": (mount_L, +1, L[1:]), "mount right": (mount_R, -1, R[1:])}
     for sp in (SPREADS[0], SPREADS[-1]):
         for kind, win in (("thumb", "rear"), ("index", "front")):
@@ -372,6 +423,8 @@ def export_print():
             fh.write(nm.encode().ljust(80, b" ") + np.uint32(len(t)).tobytes() + rec.tobytes())
     os.makedirs(PRINT_DIR, exist_ok=True)       # git-ignored: the 3MF is a local print file, not part of the design
     V3.write_3mf(os.path.join(PRINT_DIR, "UMI_v5_holders_mounts_PLA.3mf"), "UMI_v5_holders_mounts_PLA", list(NEW), V3.pack(list(NEW)))
+    hold = [n for n in NEW if n.startswith("finger_holder")]          # the two holders alone (M4 finger bolts)
+    V3.write_3mf(os.path.join(PRINT_DIR, "UMI_v5_holders_M4_PLA.3mf"), "UMI_v5_holders_M4_PLA", hold, V3.pack(hold))
     both = list(RING_RH + RING_SMALL_RH)             # standard and small-hand ring mounts (right-hand pairs), one plate
     V3.write_3mf(os.path.join(PRINT_DIR, "UMI_v5_ring_mounts_PLA.3mf"), "UMI_v5_ring_mounts_PLA", both, V3.pack(both))
 
