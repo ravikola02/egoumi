@@ -53,7 +53,27 @@ The cube carries the four main tracking markers and is held only at its front, s
 the ears moves the rear marker about 1 mm. In CAD the hook lips touch the shelf's underside with no gap; whether the
 printed snap holds the cube as solidly as the screws did is untested.
 
-## Top cover
+## Trigger: shorter and solid (`cad/build_trigger_v6.py`)
+![Stanford trigger vs the v6 triggers](../cad/renders/v6_triggers.png)
+
+An alternative to the ring mounts. The Stanford trigger's stem hangs ~100 mm below the slider and the fingers pull it
+backwards along most of that length (centre ~z −55). That lever twists the slider: its rear end lifts into the lid
+and the front presses on the bottom plate, and the bending peaks at the stem's root. The push on the lid is roughly
+finger force × lever / slider length, about as large as the finger pull.
+
+The v6 trigger keeps the slider plate as it is and replaces the stem:
+- only as long as the fingers that pull it, with finger scallops near the top: **2-finger** (stem to z −50, lever
+  33 mm) or **1-finger** (stem to z −30, lever 22 mm), against ~60 mm for the Stanford trigger. Estimated push on
+  the lid: about 54 % and 37 % of the original;
+- a solid stem section all the way down (the original is an I/T section below its root), with 6 mm fillets where it
+  meets the slider plate (root section 335 mm², was 293), within the original 13 mm width;
+- printed lying on its side, so the layers run along the stem.
+Both clear the grip, bottom plate, v4 cover and cube over 16 mm of slider travel. Print: `tmp_print/UMI_v6_triggers_PLA.3mf`.
+
+Not verified: the lid-push numbers are lever-arm estimates, not measurements; where the old trigger actually broke
+is not known, so the stronger root is a guess at the weak point; whether one finger can pull the spring is untested.
+
+
 The v4 top cover with the Osmo Nano hat-clip bracket (`cad/build_v4.py`, the printed action-cam cover) is now the
 top cover of the v6 assembly. No new collisions with any v6 part.
 
@@ -83,4 +103,5 @@ top cover of the v6 assembly. No new collisions with any v6 part.
 - The fit in his mount is checked by matching outlines and heights to his files (his floor and cross-pin hole were
   read off his STL), not by a print.
 - How solidly the snap-on cube sits compared with the screws (see above).
+- The trigger estimates and failure point (see above).
 - The 3MFs have not been opened in Bambu Studio. `sim/assets/meshes` still holds the v3 holders and fingers.

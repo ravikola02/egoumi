@@ -167,6 +167,8 @@ import build_cube_v6 as CB       # marker cube that snaps onto the bottom plate 
 parts6["top_cover"] = B4.top_cover
 parts6["cube"] = CB.cube6
 CUBE6 = ("cube",)
+import build_trigger_v6 as TR    # shorter, solid trigger (alternative to the ring mounts; same slider plate)
+TRIG6 = tuple(TR.triggers)
 for s, nm in SIDES.items():
     holder, cap, finger = built[s]
     parts6[f"finger_holder_{nm}"] = holder
@@ -283,6 +285,7 @@ def check():
     # snap-on marker cube; the fixed body parts (cube, v4 top cover) against everything else, compared with the
     # overlaps the Stanford assembly already has between its own parts
     ok &= CB.check(inter)
+    ok &= TR.check(inter)
     fixed = ("top_cover", "cube")
     base = {("top_cover", m): inter(V2.parts["top_cover"], o) for m, o in V2.parts.items() if m not in ("top_cover",)}
     base.update({("cube", m): inter(V2.parts["cube"], o) for m, o in V2.parts.items() if m not in ("cube",)})
@@ -324,13 +327,16 @@ def export():
     import build_v3 as V3
     os.makedirs(OUT, exist_ok=True)
     os.makedirs(PRINT_DIR, exist_ok=True)
-    for nm in NEW6 + FINGERS6 + CUBE6:
-        shape = parts6[nm]
+    for nm in NEW6 + FINGERS6 + CUBE6 + TRIG6:
+        shape = parts6[nm] if nm in parts6 else TR.triggers[nm][0]
         cq.exporters.export(shape, os.path.join(OUT, f"{nm}.step"))
         V, F = V3.mesh(shape)
         if nm.startswith("tpu_finger"):              # flat, as the UMI finger: blade underside on the bed
             oname, Rm = "-Z down (as modelled)", np.eye(3)
             ov = bed = 0.0
+        elif nm.startswith("trigger"):              # on its side: layers run along the stem
+            oname, Rm = "-X down", V3.ROTS["-X down"]
+            ov, bed = 0.0, 0.0
         elif nm == "cube":                           # rear face down, as the v3 cube: the hook arms lie flat
             oname, Rm = "-Y down", V3.ROTS["-Y down"]
             ov, bed = 0.0, 0.0
@@ -360,6 +366,9 @@ def export():
     V3.write_3mf(os.path.join(PRINT_DIR, "UMI_v6_holders_caps_PLA.3mf"), "UMI_v6_holders_caps_PLA", list(NEW6), V3.pack(list(NEW6)))
     V3.write_3mf(os.path.join(PRINT_DIR, "UMI_v6_fingers_TPU.3mf"), "UMI_v6_fingers_TPU", list(FINGERS6), V3.pack(list(FINGERS6)))
     V3.write_3mf(os.path.join(PRINT_DIR, "UMI_v6_cube_PLA.3mf"), "UMI_v6_cube_PLA", list(CUBE6), V3.pack(list(CUBE6)))
+    for nm in TRIG6:
+        V3.OVR[nm] = {"enable_support": "1", "support_type": "tree(auto)", "wall_loops": "4"}
+    V3.write_3mf(os.path.join(PRINT_DIR, "UMI_v6_triggers_PLA.3mf"), "UMI_v6_triggers_PLA", list(TRIG6), V3.pack(list(TRIG6)))
     cq.exporters.export(parts6["top_cover"], os.path.join(OUT, "top_cover_v4.step"))
     asm = cq.Assembly(name="umi_pinch_v6")
     for nm, s in parts6.items():
