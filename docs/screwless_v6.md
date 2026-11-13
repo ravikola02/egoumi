@@ -1,4 +1,4 @@
-# v6: one TPU finger for both grippers, screwless, fit-on jaw tag cap, slide-in cube marker tiles
+# v6: one TPU finger for both grippers, fit-on jaw tag cap, snap-on marker cube
 
 Status: CAD, fit- and collision-checked, **not printed yet**. Build: `cd cad && ../.venv-cad/bin/python build_v6.py`.
 
@@ -31,23 +31,27 @@ The finger sits centred in the 26.2 mm gap, 0.2 mm lower than the v3 CAD finger.
 the left, so its finger sits 0.57 mm further out than the Stanford one (finger gap at 36 mm travel per side: 8.0 mm,
 stock v3 fingers 7.4 mm in the same CAD).
 
-## Marker cube: slide-in tiles (`cad/build_cube_v6.py`)
-![tiles slid out](../cad/renders/v6_cube_tiles.png)
+## Marker cube: snap-on instead of screws (`cad/build_cube_v6.py`)
+![cube lifted off](../cad/renders/v6_cube_snap_exploded.png)
 
-The four 60 mm cube markers (IDs 0-3) go on printed tiles instead of straight onto the cube.
-- Each face has a pocket with undercut grooves along two edges. The rear and side tiles slide up from the cube's open
-  bottom, the top tile slides back from the top wall's front edge; each stops at the closed end and a 0.4 mm bump on
-  its back clicks into a hole in the pocket floor. A 1.6 mm backing plate inside each wall keeps the floor 2.4 mm.
-- The tile face is flush with the old cube face, so marker centres, normals and up in
-  `configs/gripper_markers.yaml` are unchanged.
-- Every face is exactly 70 mm across, so the tiles are 64 mm (rim, and clear of each other at the corners): the
-  stickers are cut to 64 mm, a 2 mm white margin instead of 5 mm. The config margins for IDs 0-3 are now 0.002 and
-  `assets/print/egoumi_aruco_markers.pdf` is regenerated. Print the cube and tiles in a light colour so the 3 mm rim
-  adds to the white border.
-- Swap a tile: push the bump out from inside the cube (open underneath) and slide the tile out.
-- The cube still bolts to the bottom plate with its two M3 screws.
-- Print: cube open side down with tree supports under the top wall (removable through the open bottom); face-down
-  would leave a 64 mm pocket floor bridging over air. Tiles print sticker face down.
+The cube was held by two M3 screws through its ears into nut pockets in the bottom plate's shelf. Only the cube
+changes; the bottom plate is the printed Stanford one. Per ear:
+- a solid 3.4 mm peg drops into the shelf's old 3.6 mm screw hole: it locates the cube front-back and sideways,
+  together with the ears' inner faces against the plate's tabs (as before);
+- a 5 mm wide, 1.6 mm thick hook arm hangs down just behind the shelf's rounded back edge, and its lip clicks under
+  the shelf, so the cube can't lift. The arm is 14 mm long (1.8 % bending strain when it flexes 1.5 mm to pass the
+  shelf), and its catch face is flat.
+- Release: push the two arm tips backwards from under the cube (it is open underneath) and lift.
+- Print the cube rear face down, as the v3 cube: the arms lie flat, with layers along their length.
+
+![right ear, seated](../cad/renders/v6_cube_snap_detail.png)
+
+A snap pin through the screw hole was tried first and dropped: the hole has a 45° chamfer (r 1.8 to 2.4) above the
+nut pocket, so barbs small enough to pass the 3.6 mm hole never catch anything.
+
+The cube carries the four main tracking markers and is held only at its front, so play tilts them: 0.1 mm of lift at
+the ears moves the rear marker about 1 mm. In CAD the hook lips touch the shelf's underside with no gap; whether the
+printed snap holds the cube as solidly as the screws did is untested.
 
 ## Top cover
 The v4 top cover with the Osmo Nano hat-clip bracket (`cad/build_v4.py`, the printed action-cam cover) is now the
@@ -61,14 +65,14 @@ top cover of the v6 assembly. No new collisions with any v6 part.
   12 mm³: one face of each of Akshat's tabs sits 0.03–0.19 mm inside the socket (his claw overlaps his mount the same
   way), the opposite face has about 0.3 mm play. Kept as he designed it.
 - No collisions over the jaw travel; all eight ring mounts seat, lock and travel clear on the new holders.
-- Cube tiles: no overlap when seated or with each other; each is held outward, sideways and toward its stop by the
-  grooves and pocket, and toward the entry by the detent. Cube, tiles and the v4 cover add no collisions beyond those
-  the Stanford assembly already has.
+- Cube: no overlap with the bottom plate when seated; it collides with the plate if moved 0.3 mm in any direction
+  (lift is stopped by the hook lips). The cube and the v4 cover add no collisions beyond those the Stanford assembly
+  already has; nothing under the shelf is in the arms' way.
 
 ## Print (git-ignored `tmp_print/`)
 - `UMI_v6_holders_caps_PLA.3mf`: 2 holders + 2 caps, PLA+ (holders top-down with tree supports, as in v3).
 - `UMI_v6_fingers_TPU.3mf`: 2 common fingers, TPU 95A, flat, 100 % line infill (Stanford's TPU finger settings).
-- `UMI_v6_cube_tiles_PLA.3mf`: the cube and 4 marker tiles, PLA (light colour).
+- `UMI_v6_cube_PLA.3mf`: the snap-on cube, PLA, rear face down.
 - STEP / STL for all parts in `cad/out_v6/` (plus `top_cover_v4.step`).
 
 ## Not verified
@@ -78,5 +82,5 @@ top cover of the v6 assembly. No new collisions with any v6 part.
   pulls are untested.
 - The fit in his mount is checked by matching outlines and heights to his files (his floor and cross-pin hole were
   read off his STL), not by a print.
-- Marker detection with the 2 mm sticker margin (plus the cube rim); the tile slide, detent and groove clearances.
+- How solidly the snap-on cube sits compared with the screws (see above).
 - The 3MFs have not been opened in Bambu Studio. `sim/assets/meshes` still holds the v3 holders and fingers.
