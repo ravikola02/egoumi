@@ -30,7 +30,7 @@ Made with `scripts/episode_preview.py` + `scripts/preview_gripper.py --style pre
 ## What's here
 | Part | Status |
 |---|---|
-| `cad/`: gripper derived from the [Stanford UMI](https://umi-gripper.github.io/) CAD; pistol grip kept, trigger replaced by a thumb ring and an index ring on the finger holders; mirrors removed to make room for tags | CAD done and collision-checked, print files for a Bambu H2D in `cad/out_v3` ([print notes](docs/PRINT_NOTES.md)); printed and used for real captures. Next: [v6](docs/screwless_v6.md), one TPU finger on Akshat's dovetail drop-in joint that fits both our holder and his mount, with a fit-on cap carrying the jaw tag (no screws; not printed yet), and [v5 wearables](docs/wearables_v5.md), slide-on strap mounts that replace the rings (either hand, adjustable finger spacing, dovetail fit without screws; reprint the two finger holders and print two mounts; not printed yet) |
+| `cad/`: gripper derived from the [Stanford UMI](https://umi-gripper.github.io/) CAD; pistol grip kept, trigger replaced by a thumb ring and an index ring on the finger holders; mirrors removed to make room for tags | CAD done and collision-checked, print files for a Bambu H2D in `cad/out_v3` ([print notes](docs/PRINT_NOTES.md)); printed and used for real captures. Next: [v6](docs/screwless_v6.md), one TPU finger on Akshat's dovetail drop-in joint that fits both our holder and his mount, with a fit-on cap carrying the jaw tag, the cube markers on slide-in tiles and the action-cam top cover (no screws on the fingers; not printed yet), and [v5 wearables](docs/wearables_v5.md), slide-on strap mounts that replace the rings (either hand, adjustable finger spacing, dovetail fit without screws; reprint the two finger holders and print two mounts; not printed yet) |
 | `sim/`: synthetic head-camera episodes (textured CAD, ArUco stickers, hand stand-in, wood-grain table, object, head bob, tremor, blur, noise) in HaWoR's frame layout, with ground truth | working |
 | `umi_pipe/` + `scripts/gripper_pose.py`: subpixel ArUco → multi-tag PnP (SQPNP + LM, outlier rejection, single-tag disambiguation) → joint body + jaw refinement → jaw width → world TCP pose | working in sim and on real captures (body pose found in every frame of the real episode above, 2–3 px reprojection most of the time) |
 | `scripts/preview_gripper.py` (+ `scripts/episode_preview.py` for a collection episode): the previews above, the gripper counterpart of HaWoR's MANO cam/world visualisation; side view, `--ego` chase view; runs on real episodes without ground truth | working |
@@ -61,7 +61,7 @@ white border. It is generated from `configs/gripper_markers.yaml`:
 
 | IDs | Where | Marker | Cut size |
 |---|---|---|---|
-| 0–3 | cube: rear, top, left, right faces | 60 mm | 70 mm (whole face) |
+| 0–3 | cube: rear, top, left, right faces (v6: on slide-in tiles) | 60 mm | 64 mm (v6 tile; was 70 mm, the whole face) |
 | 4, 5 | top cover: left and right wings (where the mirrors were) | 35 mm | 45 mm |
 | 6, 7 | finger holders: top pads (left = thumb, right = index) | 18 mm | 20 mm |
 

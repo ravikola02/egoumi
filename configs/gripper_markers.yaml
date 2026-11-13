@@ -6,6 +6,8 @@
 # scripts/make_marker_sheet.py; left/right = holding the gripper in the right hand, fingers away from you).
 # Positions come from the flat faces of cad/out_v3/umi_pinch_v3_assembly.step (see sim/export_meshes.py).
 # Unverified: sticker thickness (0.2 mm assumed) and the TCP point (estimate, see below).
+# v6 cube (cad/build_cube_v6.py): IDs 0-3 go on 64 mm slide-in tiles, so their sticker margin is 2 mm (was 5);
+# centres, normals and up are unchanged (the tile face is flush with the old cube face).
 
 dictionary: DICT_4X4_50
 sticker_offset: 0.0002          # sticker raised off the face (render + PnP model)
@@ -13,10 +15,10 @@ sticker_offset: 0.0002          # sticker raised off the face (render + PnP mode
 grippers:
   - name: right
     body_tags:                  # rigid with the body -> multi-tag PnP
-      - {id: 0, size: 0.060, margin: 0.005, center: [0.000, -0.1075, 0.0285], normal: [0, -1, 0], up: [0, 0, 1], place: "Cube - rear face (faces you)", top: "toward the top of the cube"}   # cube rear
-      - {id: 1, size: 0.060, margin: 0.005, center: [0.000, -0.0725, 0.0635], normal: [0, 0, 1], up: [0, 1, 0], place: "Cube - top face", top: "toward the fingers (front)"}    # cube top
-      - {id: 2, size: 0.060, margin: 0.005, center: [-0.035, -0.0725, 0.0285], normal: [-1, 0, 0], up: [0, 0, 1], place: "Cube - left face (thumb side)", top: "toward the top of the cube"}  # cube left
-      - {id: 3, size: 0.060, margin: 0.005, center: [0.035, -0.0725, 0.0285], normal: [1, 0, 0], up: [0, 0, 1], place: "Cube - right face (index side)", top: "toward the top of the cube"}    # cube right
+      - {id: 0, size: 0.060, margin: 0.002, center: [0.000, -0.1075, 0.0285], normal: [0, -1, 0], up: [0, 0, 1], place: "Cube - rear face (faces you)", top: "toward the top of the cube"}   # cube rear
+      - {id: 1, size: 0.060, margin: 0.002, center: [0.000, -0.0725, 0.0635], normal: [0, 0, 1], up: [0, 1, 0], place: "Cube - top face", top: "toward the fingers (front)"}    # cube top
+      - {id: 2, size: 0.060, margin: 0.002, center: [-0.035, -0.0725, 0.0285], normal: [-1, 0, 0], up: [0, 0, 1], place: "Cube - left face (thumb side)", top: "toward the top of the cube"}  # cube left
+      - {id: 3, size: 0.060, margin: 0.002, center: [0.035, -0.0725, 0.0285], normal: [1, 0, 0], up: [0, 0, 1], place: "Cube - right face (index side)", top: "toward the top of the cube"}    # cube right
       - {id: 4, size: 0.035, margin: 0.005, center: [-0.061, 0.026, 0.0198], normal: [0, 0, 1], up: [0, 1, 0], place: "Top cover - left wing (thumb side), where the mirror was", top: "toward the fingers (front)"}     # top cover left
       - {id: 5, size: 0.035, margin: 0.005, center: [0.061, 0.026, 0.0198], normal: [0, 0, 1], up: [0, 1, 0], place: "Top cover - right wing (index side), where the mirror was", top: "toward the fingers (front)"}      # top cover right
     jaw_tags:                   # ride on the finger holders; slide along `axis` by the travel t >= 0

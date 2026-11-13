@@ -162,7 +162,13 @@ built = {+1: (holder_L, cap_L, finger_L), -1: (holder_L.mirror("YZ"), cap_L.mirr
 SIDES = {+1: "left", -1: "right"}
 parts6 = {n: s for n, s in V2.parts.items() if n not in ("finger_holder_left_thumb", "finger_holder_right_index",
                                                          "soft_finger_left", "soft_finger_right", "top_cover")}
-parts6["top_cover"] = B5.top_cover
+import build_v4 as B4            # top cover with the Osmo Nano hat-clip bracket (the printed action-cam cover)
+import build_cube_v6 as CB       # marker cube with slide-in marker tiles
+parts6["top_cover"] = B4.top_cover
+parts6["cube"] = CB.cube6
+for _nm, _t in CB.tiles6.items():
+    parts6[f"marker_tile_{_nm}"] = _t
+CUBE6 = ("cube",) + tuple(f"marker_tile_{n}" for n in CB.tiles6)
 for s, nm in SIDES.items():
     holder, cap, finger = built[s]
     parts6[f"finger_holder_{nm}"] = holder
@@ -276,6 +282,26 @@ def check():
                     ok = False
                     print(f"{nm} T={T}: {hits}")
     print("ring mounts over the travel: done (any collision is listed above)")
+    # marker cube and tiles; the fixed body parts (cube, tiles, v4 top cover) against everything else, compared with
+    # the overlaps the Stanford assembly already has between its own parts
+    ok &= CB.check(inter)
+    fixed = ("top_cover", "cube") + CUBE6[1:]
+    base = {("top_cover", m): inter(V2.parts["top_cover"], o) for m, o in V2.parts.items() if m not in ("top_cover",)}
+    base.update({("cube", m): inter(V2.parts["cube"], o) for m, o in V2.parts.items() if m not in ("cube",)})
+    for T in (0.0, V2.T_CLOSE):
+        S = posed(T)
+        hits = []
+        for a in fixed:
+            for m, o in S.items():
+                if m == a or (a.startswith("marker_tile") and m == "cube") or (a == "cube" and m.startswith("marker_tile")):
+                    continue
+                if a.startswith("marker_tile") and m.startswith("marker_tile"):
+                    continue
+                v = inter(S[a], o)
+                if v > base.get((a, m), 0.0) + 0.05:
+                    hits.append(f"{a} x {m}: {v:.1f} (Stanford baseline {base.get((a, m), 0.0):.1f})")
+        ok &= not hits
+        print(f"fixed parts (v4 cover, cube, tiles) at T={T:4.1f}:", hits if hits else "no new collisions")
     return ok
 
 
@@ -302,13 +328,21 @@ def export():
     import build_v3 as V3
     os.makedirs(OUT, exist_ok=True)
     os.makedirs(PRINT_DIR, exist_ok=True)
-    for nm in NEW6 + FINGERS6:
+    for nm in NEW6 + FINGERS6 + CUBE6:
         shape = parts6[nm]
         cq.exporters.export(shape, os.path.join(OUT, f"{nm}.step"))
         V, F = V3.mesh(shape)
         if nm.startswith("tpu_finger"):              # flat, as the UMI finger: blade underside on the bed
             oname, Rm = "-Z down (as modelled)", np.eye(3)
             ov = bed = 0.0
+        elif nm == "cube":                           # open bottom down: the face pockets stand vertical / face up; the
+            oname, Rm = "-Z down (as modelled)", np.eye(3)   # top wall's underside needs tree supports (removable
+            ov, bed = 0.0, 0.0                       # through the open bottom); face-down would bridge a 64 mm pocket floor
+        elif nm.startswith("marker_tile"):           # sticker face on the bed (smooth), flanges and bump up
+            f = CB.FACES[nm[len("marker_tile_"):]]
+            n = np.array(f["n"], float)
+            Rm = next(R for R in V3.ROTS.values() if np.allclose(R @ n, [0, 0, -1]))
+            oname, ov, bed = "sticker face down", 0.0, 0.0
         else:
             oname, Rm, ov, bed = V3.orient(V, F)
         W = V @ Rm.T
@@ -334,6 +368,8 @@ def export():
             os.remove(os.path.join(PRINT_DIR, f))
     V3.write_3mf(os.path.join(PRINT_DIR, "UMI_v6_holders_caps_PLA.3mf"), "UMI_v6_holders_caps_PLA", list(NEW6), V3.pack(list(NEW6)))
     V3.write_3mf(os.path.join(PRINT_DIR, "UMI_v6_fingers_TPU.3mf"), "UMI_v6_fingers_TPU", list(FINGERS6), V3.pack(list(FINGERS6)))
+    V3.write_3mf(os.path.join(PRINT_DIR, "UMI_v6_cube_tiles_PLA.3mf"), "UMI_v6_cube_tiles_PLA", list(CUBE6), V3.pack(list(CUBE6)))
+    cq.exporters.export(parts6["top_cover"], os.path.join(OUT, "top_cover_v4.step"))
     asm = cq.Assembly(name="umi_pinch_v6")
     for nm, s in parts6.items():
         asm.add(s, name=nm)
