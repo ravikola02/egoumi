@@ -369,6 +369,9 @@ def export():
     for nm in TRIG6:
         V3.OVR[nm] = {"enable_support": "1", "support_type": "tree(auto)", "wall_loops": "4"}
     V3.write_3mf(os.path.join(PRINT_DIR, "UMI_v6_triggers_PLA.3mf"), "UMI_v6_triggers_PLA", list(TRIG6), V3.pack(list(TRIG6)))
+    # every new v6 PLA part on one plate (the TPU fingers stay in their own file)
+    allv6 = list(NEW6 + CUBE6 + TRIG6)
+    V3.write_3mf(os.path.join(PRINT_DIR, "UMI_v6_all_PLA.3mf"), "UMI_v6_all_PLA", allv6, V3.pack(allv6))
     cq.exporters.export(parts6["top_cover"], os.path.join(OUT, "top_cover_v4.step"))
     asm = cq.Assembly(name="umi_pinch_v6")
     for nm, s in parts6.items():
