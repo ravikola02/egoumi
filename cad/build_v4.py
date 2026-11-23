@@ -4,7 +4,8 @@ DJI Osmo Nano Magnetic Hat Clip (the spring clip in the Osmo Nano kit; the camer
 Bracket: a vertical post across X standing on the cover, then a flat "brim" running forward (+Y, toward the fingers)
 from its top, drooping BRIM_TILT so the clip sits on it the way it sits on a cap brim and the camera looks down at the
 jaws (the v3 sim used a 15 deg down pitch). Gussets at both ends (post-to-cover, post-to-brim) leave the middle free.
-Preview: `cd cad && ../.venv-cad/bin/python build_v4.py` -> renders/v4_*.png (no print files yet).
+Preview: `cd cad && ../.venv-cad/bin/python build_v4.py` -> renders/v4_*.png.
+This is the default top cover; print files: `cad/export_dji_cover.py` (cad/out_v4/top_cover_dji.stl, tmp_print/*.3mf).
 """
 import os
 import math

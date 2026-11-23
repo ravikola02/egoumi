@@ -1,5 +1,8 @@
 # UMI pinch v3: printing on Bambu Lab H2D (0.4 mm nozzle)
 
+> **Default top cover: the DJI action-cam cover** (`cad/build_v4.py`). The top cover in `UMI_print1_covers_PLA.3mf`
+> below is the legacy GoPro version; print `UMI_print1_covers_DJI_PLA.3mf` from `cad/export_dji_cover.py` instead.
+
 ## Files
 | File | Filament | Parts |
 |---|---|---|
