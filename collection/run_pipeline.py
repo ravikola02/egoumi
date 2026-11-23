@@ -59,6 +59,7 @@ def main(argv=None) -> int:
                         "env EGOUMI_DATA_ROOT)")
     p.add_argument("--dataset-version", choices=["v21", "v30"], default="v30")
     p.add_argument("--state-source", default="none", help="none (video-only, default) | zeros | sim_gt | aruco")
+    p.add_argument("--grippers", help="aruco: comma-separated gripper names to track (default: all in the marker layout)")
     p.add_argument("--sim-gt", help="passed to the converter (sim sessions)")
     p.add_argument("--camera", help="passed to the converter (head intrinsics for aruco)")
     p.add_argument("--markers", help="passed to the converter (marker layout)")
@@ -120,7 +121,7 @@ def main(argv=None) -> int:
            "--state-source", args.state_source, "--fps", str(args.fps), "--image-size", args.image_size]
     if args.overwrite:
         cmd.append("--overwrite")
-    for flag in ("sim_gt", "camera", "markers", "ema_pos", "ema_grip", "ema_rot", "cam_motion"):
+    for flag in ("sim_gt", "camera", "markers", "ema_pos", "ema_grip", "ema_rot", "cam_motion", "grippers"):
         if getattr(args, flag):
             cmd += [f"--{flag.replace('_', '-')}", getattr(args, flag)]
     if args.no_slam_mask:

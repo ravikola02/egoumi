@@ -65,6 +65,14 @@ white border. It is generated from `configs/gripper_markers.yaml`:
 | 4, 5 | top cover: left and right wings (where the mirrors were) | 35 mm | 45 mm |
 | 6, 7 | finger holders: top pads (left = thumb, right = index) | 18 mm | 20 mm |
 
+**Second gripper (left hand).** `configs/gripper_markers.yaml` has a second gripper, `left`: the same body and marker
+positions with the rings swapped, and marker IDs **10–17** so both grippers can be in view at once. Its sheet is
+[`assets/print/egoumi_aruco_markers_left.pdf`](assets/print/egoumi_aruco_markers_left.pdf)
+(`python3 scripts/make_marker_sheet.py --gripper left`); its parts come from `cad/export_left_hand.py` (only the
+holders differ in v3, only the ring mounts in v6). In the dataset the right gripper fills `right.*` and its gripper
+camera `right_w_cam`, the left one `left.*` and `left_w_cam` (`--grippers right` keeps a one-gripper dataset).
+Sim results for both: [sim/README.md](sim/README.md#two-grippers-2026-11-23).
+
 ## Quick start: capture → LeRobot dataset
 ```bash
 python3 collection/run_pipeline.py --session <session>   # data/raw/<session>/{top_cam,left_w_cam,right_w_cam}/

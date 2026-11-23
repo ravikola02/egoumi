@@ -73,6 +73,11 @@ class ZerosSource:
 # ---------------------------------------------------------------------------------------------------------
 
 R_TCP_EEF = np.array([[0.0, -1, 0], [0, 0, 1], [-1, 0, 0]])    # columns: eef x, y, z in the gripper body frame
+# left-hand gripper (rings swapped: thumb on the right holder): h2r_collection mirrors the hand frame for the left hand,
+# so +y still points toward the thumb-side jaw (now body +X) and +x = y x z = body +Z; +z approach = body +Y as before
+R_TCP_EEF_LEFT = np.array([[0.0, 1, 0], [0, 0, 1], [1, 0, 0]])
+SLOTS = {"right": dict(pos=slice(6, 9), rpy=slice(9, 12), grip=13, R=R_TCP_EEF),
+         "left": dict(pos=slice(0, 3), rpy=slice(3, 6), grip=12, R=R_TCP_EEF_LEFT)}
 
 
 def inv_batch(T: np.ndarray) -> np.ndarray:
@@ -197,13 +202,15 @@ def _repo_imports():
         sys.path.insert(0, root)
 
 
-def _pose_rows(T_c0_tcp: np.ndarray, grip: np.ndarray) -> np.ndarray:
+def _pose_rows(T_c0_tcp: np.ndarray, grip: np.ndarray, hand: str = "right", state: np.ndarray = None) -> np.ndarray:
+    """Write one gripper's TCP pose + gripper value into its hand's slots of the 14-d state (a new one by default)."""
     from scipy.spatial.transform import Rotation as R
     n = len(T_c0_tcp)
-    state = np.zeros((n, 14), np.float32)
-    state[:, 6:9] = T_c0_tcp[:, :3, 3]
-    state[:, 9:12] = R.from_matrix(T_c0_tcp[:, :3, :3] @ R_TCP_EEF).as_euler("XYZ")
-    state[:, 13] = grip
+    state = np.zeros((n, 14), np.float32) if state is None else state
+    sl = SLOTS[hand]
+    state[:, sl["pos"]] = T_c0_tcp[:, :3, 3]
+    state[:, sl["rpy"]] = R.from_matrix(T_c0_tcp[:, :3, :3] @ sl["R"]).as_euler("XYZ")
+    state[:, sl["grip"]] = grip
     return state
 
 
@@ -273,7 +280,7 @@ class ArucoSource(_GripperBase):
 
     def __init__(self, cut_sheet=None, sim_gt=None, camera=None, markers=None, cam_motion="droid_slam",
                  max_gap=5, ema_pos=0.18, ema_grip=None, ema_rot=None, slam_cache=None, hawor_python=None,
-                 hawor_repo=None, slam_mask=True, slam_dilate=25, **kw):
+                 hawor_repo=None, slam_mask=True, slam_dilate=25, grippers=None, **kw):
         super().__init__(cut_sheet=cut_sheet, sim_gt=sim_gt)
         _repo_imports()
         import yaml
@@ -285,12 +292,19 @@ class ArucoSource(_GripperBase):
         self.head_cam = cams.get("head", cams)           # intrinsics at its width x height; rescaled per clip
         # gripper (wrist) camera: if its mount on the gripper is known, jaw width comes from it (UMI-style: the
         # camera is rigid to the body, so each jaw tag only slides along its rail in this view)
-        wr = cams.get("wrist_right") if isinstance(cams, dict) else None
-        self.wrist = None
-        if wr and "T_body_cam" in wr:
-            from umi_pipe.geometry import inv
-            self.wrist = {"cam": wr, "T_cam_body": inv(np.asarray(wr["T_body_cam"], float))}
-        self.model = GripperModel(markers or MARKER_CFG)
+        # one gripper per hand (configs/gripper_markers.yaml `grippers`, each with `hand`); `grippers` picks a subset
+        cfg_grippers = yaml.safe_load(open(markers or MARKER_CFG))["grippers"]
+        names = [g["name"] for g in cfg_grippers] if grippers is None else list(grippers)
+        self.models = [GripperModel(markers or MARKER_CFG, index=nm) for nm in names]
+        if len({m.hand for m in self.models}) != len(self.models):
+            raise ValueError("state source 'aruco': at most one gripper per hand")
+        self.model = self.models[0]
+        from umi_pipe.geometry import inv
+        self.wrist = {}
+        for m in self.models:           # wrist_right / wrist_left camera of each hand, when its mount is known
+            wr = cams.get(f"wrist_{m.hand}") if isinstance(cams, dict) else None
+            if wr and "T_body_cam" in wr:
+                self.wrist[m.hand] = {"cam": wr, "T_cam_body": inv(np.asarray(wr["T_body_cam"], float))}
         self.P = P
         if cam_motion == "hawor_slam":       # old name of the same option
             cam_motion = "droid_slam"
@@ -322,87 +336,111 @@ class ArucoSource(_GripperBase):
         import cv2
         from umi_pipe.geometry import pose_error
         idx = self._head_frames(episode, n, fps)
-        det = self.P.make_detector(self.model)
-        T_cam_body = np.tile(np.eye(4), (n, 1, 1)); src = np.zeros(n, int)
-        travel = np.full(n, np.nan); n_tags = np.zeros(n, int); T_prev = None; K = None
+        det = self.P.make_detector(self.model)          # the detector finds every ID; each model keeps its own
+        tr = {m.name: dict(model=m, T_cam_body=np.tile(np.eye(4), (n, 1, 1)), src=np.zeros(n, int),
+                           travel=np.full(n, np.nan), n_tags=np.zeros(n, int), T_prev=None) for m in self.models}
+        K = None
         for k, img in row_frames(episode.clips["head"], n, fps):
             if K is None:
                 K, dist = scaled_K(self.head_cam, img.shape[1], img.shape[0])
             dets = self.P.detect(det, img)
-            b = self.P.estimate_body(dets, self.model, K, dist, T_prev)
-            if b is None:
-                continue
-            T_cam_body[k] = T_prev = b["T_cam_body"]; src[k] = 1; n_tags[k] = len(b["ids"])
-            tr = self.P.estimate_travel(dets, self.model, K, dist, b["T_cam_body"])
-            if tr:
-                travel[k] = np.mean([v[0] for v in tr.values()])
-        travel_head = travel.copy()
-        travel_wrist = np.full(n, np.nan)
-        if self.wrist is not None and "wrist_right" in episode.clips:
-            Kw = None
-            for k, img in row_frames(episode.clips["wrist_right"], n, fps):
-                if Kw is None:
-                    Kw, dw = scaled_K(self.wrist["cam"], img.shape[1], img.shape[0])
-                tr = self.P.estimate_travel(self.P.detect(det, img), self.model, Kw, dw, self.wrist["T_cam_body"])
-                if tr:
-                    travel_wrist[k] = np.mean([v[0] for v in tr.values()])
-            travel = np.where(np.isfinite(travel_wrist), travel_wrist, travel_head)
-
-        # single-frame pose flips (planar / single-tag ambiguity): a pose that disagrees with the median of its
-        # +-spike_win neighbours by more than spike_mm or spike_deg is dropped (src 0 -> interpolated below).
-        # Measured in the head-camera frame; head motion over 3 frames is ~1-4 cm, well under the threshold.
-        spikes = reject_spikes(T_cam_body @ self.model.T_body_tcp, src, self.spike_win, self.spike_mm, self.spike_deg)
-        src[spikes] = 0
+            for t in tr.values():
+                b = self.P.estimate_body(dets, t["model"], K, dist, t["T_prev"])
+                if b is None:
+                    continue
+                t["T_cam_body"][k] = t["T_prev"] = b["T_cam_body"]; t["src"][k] = 1; t["n_tags"][k] = len(b["ids"])
+                trv = self.P.estimate_travel(dets, t["model"], K, dist, b["T_cam_body"])
+                if trv:
+                    t["travel"][k] = np.mean([v[0] for v in trv.values()])
+        for t in tr.values():
+            m = t["model"]
+            t["travel_head"] = t["travel"].copy(); t["travel_wrist"] = np.full(n, np.nan)
+            clip = f"wrist_{m.hand}"
+            if m.hand in self.wrist and clip in episode.clips:
+                Kw = None; wcam = self.wrist[m.hand]
+                for k, img in row_frames(episode.clips[clip], n, fps):
+                    if Kw is None:
+                        Kw, dw = scaled_K(wcam["cam"], img.shape[1], img.shape[0])
+                    trv = self.P.estimate_travel(self.P.detect(det, img), m, Kw, dw, wcam["T_cam_body"])
+                    if trv:
+                        t["travel_wrist"][k] = np.mean([v[0] for v in trv.values()])
+                t["travel"] = np.where(np.isfinite(t["travel_wrist"]), t["travel_wrist"], t["travel_head"])
+            # single-frame pose flips (planar / single-tag ambiguity): a pose that disagrees with the median of its
+            # +-spike_win neighbours by more than spike_mm or spike_deg is dropped (src 0 -> interpolated below).
+            # Measured in the head-camera frame; head motion over 3 frames is ~1-4 cm, well under the threshold.
+            t["spikes"] = reject_spikes(t["T_cam_body"] @ m.T_body_tcp, t["src"], self.spike_win, self.spike_mm, self.spike_deg)
+            t["src"][t["spikes"]] = 0
 
         # head-camera motion (world = the episode's first head-camera frame either way)
         T_wc_gt = self._gt_world_cam(idx) if self._gt is not None else None
         if self.cam_motion == "sim_gt":
             T_wc = T_wc_gt if T_wc_gt is not None else self._gt_world_cam(idx)
         elif self.cam_motion == "droid_slam":
-            T_wc = self._slam_cameras(episode, n, fps, T_cam_body, src > 0)
+            T_wc = self._slam_cameras(episode, n, fps, {nm: (t["T_cam_body"], t["src"] > 0) for nm, t in tr.items()})
         else:   # none: every row in its own camera frame (no world frame; flagged in info.json)
             T_wc = np.tile(np.eye(4), (n, 1, 1))
 
-        # pose in the episode frame, gaps <= max_gap interpolated, longer gaps held (and reported)
-        T_c0_tcp = inv_batch(T_wc[:1])[0] @ T_wc @ T_cam_body @ self.model.T_body_tcp
-        fill_gaps(T_c0_tcp, src, self.max_gap)
-        held = 0
-        for k in range(n):
-            if src[k] == 0:
-                prev = np.where(src[:k] > 0)[0]
-                nxt = np.where(src[k:] > 0)[0]
-                j = prev[-1] if len(prev) else (k + nxt[0] if len(nxt) else None)
-                if j is not None:
-                    T_c0_tcp[k] = T_c0_tcp[j]; held += 1
-        width_ok = np.isfinite(travel)
-        # frames without a jaw tag: interpolate the travel between measured frames (hold at the ends); 0 = open
-        # only when the jaw tags were never seen in the whole episode
-        if width_ok.any():
-            k_ok = np.where(width_ok)[0]
-            travel = np.interp(np.arange(n), k_ok, travel[k_ok])
-            grip = np.clip(1.0 - self.model.width_from_travel(np.clip(travel, 0, self.model.travel_max)) /
-                           self.model.width_open, 0, 1)
-        else:
-            grip = np.zeros(n)
-        self.episode_info = {"head_frames": [int(idx[0]), int(idx[-1])],
-                             "pose_measured_pct": round(float((src == 1).mean() * 100), 1),
-                             "pose_interpolated_pct": round(float((src == 2).mean() * 100), 1),
-                             "pose_held_pct": round(held / n * 100, 1),
-                             "single_tag_pct": round(float(((n_tags == 1) & (src == 1)).mean() * 100), 1),
-                             "pose_spikes_rejected": int(spikes.sum()),
-                             "gripper_measured_pct": round(float(width_ok.mean() * 100), 1),
-                             "gripper_from_wrist_pct": round(float(np.isfinite(travel_wrist).mean() * 100), 1),
-                             "gripper_from_head_only_pct": round(float((np.isfinite(travel_head) &
-                                                                        ~np.isfinite(travel_wrist)).mean() * 100), 1)}
-        if self._gt is not None:   # score against the sim ground truth in the same frame, and ship it as a tag
-            G = inv_batch(T_wc_gt[:1])[0] @ self._gt["T_world_tcp"][idx]     # GT in the GT first head frame
-            gt_state = _pose_rows(G, np.clip(1.0 - self._gt["width"][idx] / self.model.width_open, 0.0, 1.0))
+        state = np.zeros((n, 14), np.float32)
+        gt_state = np.zeros((n, 14), np.float32) if self._gt is not None else None
+        self.episode_info = {"head_frames": [int(idx[0]), int(idx[-1])], "grippers": [m.name for m in self.models]}
+        filtered = []
+        for t in tr.values():
+            m = t["model"]; src = t["src"]; travel = t["travel"]
+            pre = "" if m.hand == "right" else f"{m.hand}_"      # right keeps the original info keys
+            if not (src > 0).any():          # this gripper never seen (e.g. a one-gripper recording): its slots stay 0
+                self.episode_info[pre + "gripper_absent"] = True
+                continue
+            # pose in the episode frame, gaps <= max_gap interpolated, longer gaps held (and reported)
+            T_c0_tcp = inv_batch(T_wc[:1])[0] @ T_wc @ t["T_cam_body"] @ m.T_body_tcp
+            fill_gaps(T_c0_tcp, src, self.max_gap)
+            held = 0
+            for k in range(n):
+                if src[k] == 0:
+                    prev = np.where(src[:k] > 0)[0]
+                    nxt = np.where(src[k:] > 0)[0]
+                    j = prev[-1] if len(prev) else (k + nxt[0] if len(nxt) else None)
+                    if j is not None:
+                        T_c0_tcp[k] = T_c0_tcp[j]; held += 1
+            width_ok = np.isfinite(travel)
+            # frames without a jaw tag: interpolate the travel between measured frames (hold at the ends); 0 = open
+            # only when the jaw tags were never seen in the whole episode
+            if width_ok.any():
+                k_ok = np.where(width_ok)[0]
+                travel = np.interp(np.arange(n), k_ok, travel[k_ok])
+                grip = np.clip(1.0 - m.width_from_travel(np.clip(travel, 0, m.travel_max)) / m.width_open, 0, 1)
+            else:
+                grip = np.zeros(n)
+            self.episode_info.update({
+                pre + "pose_measured_pct": round(float((src == 1).mean() * 100), 1),
+                pre + "pose_interpolated_pct": round(float((src == 2).mean() * 100), 1),
+                pre + "pose_held_pct": round(held / n * 100, 1),
+                pre + "single_tag_pct": round(float(((t["n_tags"] == 1) & (src == 1)).mean() * 100), 1),
+                pre + "pose_spikes_rejected": int(t["spikes"].sum()),
+                pre + "gripper_measured_pct": round(float(width_ok.mean() * 100), 1),
+                pre + "gripper_from_wrist_pct": round(float(np.isfinite(t["travel_wrist"]).mean() * 100), 1),
+                pre + "gripper_from_head_only_pct": round(float((np.isfinite(t["travel_head"]) &
+                                                                 ~np.isfinite(t["travel_wrist"])).mean() * 100), 1)})
+            G = None
+            gkey = "" if m.hand == "right" else f"_{m.hand}"
+            if self._gt is not None and f"T_world_tcp{gkey}" in self._gt:   # score against the sim ground truth
+                G = inv_batch(T_wc_gt[:1])[0] @ self._gt[f"T_world_tcp{gkey}"][idx]     # GT in the GT first head frame
+                _pose_rows(G, np.clip(1.0 - self._gt[f"width{gkey}"][idx] / m.width_open, 0.0, 1.0), m.hand, gt_state)
+                e = np.array([pose_error(a, b) for a, b in zip(T_c0_tcp, G)])
+                self.episode_info.update({pre + "vs_gt_pos_mm_median": round(float(np.median(e[:, 0]) * 1000), 2),
+                                          pre + "vs_gt_pos_mm_p90": round(float(np.percentile(e[:, 0], 90) * 1000), 2),
+                                          pre + "vs_gt_rot_deg_median": round(float(np.median(e[:, 1])), 3),
+                                          pre + "vs_gt_pos_mm_max": round(float(e[:, 0].max() * 1000), 2)})
+            # causal EMA on the PREDICTED pose (the GT tags stay raw): orientation on SO(3) before it becomes Euler
+            # angles, position and gripper per component
+            T_f = T_c0_tcp.copy()
+            T_f[:, :3, :3] = ema_rot(T_c0_tcp[:, :3, :3], self.ema_rot)
+            _pose_rows(T_f, grip, m.hand, state)
+            sl = SLOTS[m.hand]
+            state[:, sl["pos"]] = ema(state[:, sl["pos"]], self.ema_pos)
+            state[:, sl["grip"]] = ema(state[:, sl["grip"]], self.ema_grip)
+            filtered.append((m, sl, T_f, G, pre))
+        if self._gt is not None:
             self.extra = {"observation.state_gt": gt_state, "action_gt": derive_action_from_state(gt_state)}
-            e = np.array([pose_error(a, b) for a, b in zip(T_c0_tcp, G)])
-            self.episode_info.update({"vs_gt_pos_mm_median": round(float(np.median(e[:, 0]) * 1000), 2),
-                                      "vs_gt_pos_mm_p90": round(float(np.percentile(e[:, 0], 90) * 1000), 2),
-                                      "vs_gt_rot_deg_median": round(float(np.median(e[:, 1])), 3),
-                                      "vs_gt_pos_mm_max": round(float(e[:, 0].max() * 1000), 2)})
             if self.cam_motion == "droid_slam":   # score the head-camera trajectory itself
                 Cs, Cg = inv_batch(T_wc[:1])[0] @ T_wc, inv_batch(T_wc_gt[:1])[0] @ T_wc_gt
                 ce = np.array([pose_error(a, b) for a, b in zip(Cs, Cg)])
@@ -413,38 +451,39 @@ class ArucoSource(_GripperBase):
                     "slam_cam_rot_deg_end": round(float(ce[-1, 1]), 3),
                     "slam_cam_rot_deg_max": round(float(ce[:, 1].max()), 3),
                     "slam_path_ratio": round(float(path(Cs) / max(path(Cg), 1e-9)), 3)})
+            for m, sl, T_f, G, pre in filtered:
+                if G is None:
+                    continue
+                e2 = np.linalg.norm(state[:, sl["pos"]] - gt_state[:, sl["pos"]], axis=1) * 1000
+                r2 = np.array([pose_error(a, b)[1] for a, b in zip(T_f, G)])
+                self.episode_info.update({pre + "vs_gt_pos_mm_median_after_ema": round(float(np.median(e2)), 2),
+                                          pre + "vs_gt_pos_mm_p90_after_ema": round(float(np.percentile(e2, 90)), 2),
+                                          pre + "vs_gt_pos_mm_max_after_ema": round(float(e2.max()), 2),
+                                          pre + "vs_gt_rot_deg_median_after_ema": round(float(np.median(r2)), 3),
+                                          pre + "vs_gt_rot_deg_max_after_ema": round(float(r2.max()), 3)})
         self.episode_info.update(self.slam_info)
-        # causal EMA on the PREDICTED pose (the GT tags stay raw): orientation on SO(3) before it becomes Euler angles,
-        # position and gripper per component
-        T_f = T_c0_tcp.copy()
-        T_f[:, :3, :3] = ema_rot(T_c0_tcp[:, :3, :3], self.ema_rot)
-        state = _pose_rows(T_f, grip)
-        state[:, 6:9] = ema(state[:, 6:9], self.ema_pos)
-        state[:, 13] = ema(state[:, 13], self.ema_grip)
-        if self._gt is not None:
-            e2 = np.linalg.norm(state[:, 6:9] - gt_state[:, 6:9], axis=1) * 1000
-            r2 = np.array([pose_error(a, b)[1] for a, b in zip(T_f, G)])
-            self.episode_info.update({"vs_gt_pos_mm_median_after_ema": round(float(np.median(e2)), 2),
-                                      "vs_gt_pos_mm_p90_after_ema": round(float(np.percentile(e2, 90)), 2),
-                                      "vs_gt_pos_mm_max_after_ema": round(float(e2.max()), 2),
-                                      "vs_gt_rot_deg_median_after_ema": round(float(np.median(r2)), 3),
-                                      "vs_gt_rot_deg_max_after_ema": round(float(r2.max()), 3)})
         return state, derive_action_from_state(state)
 
-    def _slam_cameras(self, episode, n: int, fps: float, T_cam_body: np.ndarray, valid: np.ndarray) -> np.ndarray:
+    def _slam_cameras(self, episode, n: int, fps: float, tracks: Dict) -> np.ndarray:
         """Head-camera camera-to-world per row from masked DROID-SLAM (collection/head_slam.py in the HaWoR env).
         Cached per clip content + rows + mask settings under slam_cache/."""
         import os, json, subprocess, hashlib
         from episodes import video_hash
         clip = episode.clips["head"]
-        key = hashlib.sha1(f"{video_hash(clip)}|{n}|{fps}|{self.slam['mask']}|{self.slam['dilate']}".encode()
+        names = list(tracks)
+        grip_key = "" if names == ["right"] else "|" + ",".join(names)      # single right gripper: the old cache key
+        key = hashlib.sha1(f"{video_hash(clip)}|{n}|{fps}|{self.slam['mask']}|{self.slam['dilate']}{grip_key}".encode()
                            ).hexdigest()[:16]
         work = os.path.join(self.slam["cache"], f"{episode.name}_{key}")
         out = os.path.join(work, "cameras.npz")
         if not os.path.isfile(out):
             os.makedirs(work, exist_ok=True)
             poses = os.path.join(work, "aruco_poses.npz")
-            np.savez(poses, T_cam_body=T_cam_body, valid=valid)
+            first = names[0]
+            extra = {}
+            for nm in names[1:]:
+                extra[f"T_cam_body_{nm}"], extra[f"valid_{nm}"] = tracks[nm]
+            np.savez(poses, T_cam_body=tracks[first][0], valid=tracks[first][1], names=np.array(names), **extra)
             here = os.path.dirname(os.path.abspath(__file__))
             cmd = [self.slam["python"], os.path.join(here, "head_slam.py"), "--head-clip", str(clip),
                    "--rows", str(n), "--fps", str(fps), "--poses", poses, "--camera", self.camera_path,
@@ -488,17 +527,23 @@ class ArucoSource(_GripperBase):
                                                                   "layout and conventions)",
                                           "action_gt": "action_gt[t] = observation.state_gt[t+1]"}
                                          if self._gt is not None else {}),
-                "state_signal": "ArUco gripper pose from the head clip (multi-tag PnP), right gripper TCP in the "
-                                "episode's first head-camera optical frame; eef frame as h2r_collection (+z approach = "
-                                "body +Y, +y jaw axis toward the thumb side = body -X, +x = body -Z); intrinsic-XYZ rpy. "
+                "grippers": {m.name: {"hand": m.hand, "slots": f"{m.hand}.*",
+                                      "wrist_camera": (f"wrist_{m.hand}" if m.hand in self.wrist else "none (head camera only)")}
+                             for m in self.models},
+                "state_signal": "ArUco gripper pose from the head clip (multi-tag PnP), each gripper's TCP in the "
+                                "episode's first head-camera optical frame, in its hand's slots; eef frame as h2r_collection "
+                                "(+z approach = body +Y, +y jaw axis toward the thumb-side jaw, +x = y x z): right-hand "
+                                "gripper +y = body -X, +x = body -Z; left-hand gripper (rings swapped) +y = body +X, "
+                                "+x = body +Z; intrinsic-XYZ rpy. "
                                 "Head-camera motion: " +
                                 {"droid_slam": "masked DROID-SLAM + Metric3D scale (run via HaWoR's SLAM wrapper, as h2r_collection), "
                                                "masking the gripper + hand at their ArUco pose.",
                                  "sim_gt": "SIM GROUND TRUTH standing in for SLAM.",
                                  "none": "NONE: each row is in its own head-camera frame (no world frame)."}[self.cam_motion] +
-                                " right.gripper = 1 - width/width_open from the jaw tags, seen by the gripper (wrist) camera "
-                                "when its mount is known (head camera as fallback), interpolated across frames without a "
-                                "jaw tag (meta/egoumi_episodes.json gripper_measured_pct), 0 if never seen in an episode. Left arm absent: left.* = 0."}
+                                " <hand>.gripper = 1 - width/width_open from the jaw tags, seen by that hand's gripper (wrist) "
+                                "camera when its mount is known (head camera as fallback), interpolated across frames without a "
+                                "jaw tag (meta/egoumi_episodes.json gripper_measured_pct), 0 if never seen in an episode. "
+                                "A hand without a gripper in the config: its slots are 0."}
 
 
 SOURCES = {s.name: s for s in (NoneSource, ZerosSource, SimGtSource, ArucoSource)}

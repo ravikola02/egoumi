@@ -99,6 +99,8 @@ def main(argv=None) -> int:
                                     "configs/cameras_osmo_nano.yaml, the h2r_collection DJI Osmo Nano setup; "
                                     "sim: <session>/sim_gt/cameras.yaml)")
     p.add_argument("--markers", help="marker layout yaml (default configs/gripper_markers.yaml)")
+    p.add_argument("--grippers", help="aruco: comma-separated gripper names from the marker layout to track (default: all; "
+                   "each fills its hand's slots, e.g. right -> right.*, left -> left.*)")
     p.add_argument("--cam-motion", choices=["droid_slam", "hawor_slam", "sim_gt", "none"], default="droid_slam",
                    help="head-camera motion for aruco: droid_slam (default; masked DROID-SLAM + Metric3D scale, run through "
                         "HaWoR's SLAM wrapper in the HaWoR env, via HAWOR_PYTHON / HAWOR_REPO; 'hawor_slam' = old "
@@ -136,6 +138,7 @@ def main(argv=None) -> int:
         print(f"  camera:   {args.camera} (h2r_collection DJI Osmo Nano intrinsics)")
     source = get_source(args.state_source, cut_sheet=cut_sheet, sim_gt=args.sim_gt, camera=args.camera,
                         markers=args.markers, cam_motion=args.cam_motion, ema_pos=args.ema_pos,
+                        grippers=(args.grippers.split(",") if args.grippers else None),
                         ema_grip=args.ema_grip, ema_rot=args.ema_rot,
                         slam_cache=args.slam_cache or str(out_root.parent / "slam_cache"),
                         slam_mask=not args.no_slam_mask, slam_dilate=args.slam_dilate)

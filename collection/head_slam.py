@@ -38,23 +38,32 @@ def chdir(path):
         os.chdir(old)
 
 
-def render_masks(T_cam_body, valid, K, w, h, dilate, markers=None):
-    """(n, h, w) bool: gripper + hand stand-in at each row's pose, dilated."""
+def render_masks(tracks, K, w, h, dilate, markers=None):
+    """(n, h, w) bool: every gripper + its hand stand-in at each row's pose, dilated.
+    tracks: {gripper name: (T_cam_body (n,4,4), valid (n,))}; a gripper never posed in the episode is left out."""
     from umi_pipe.model import GripperModel, MARKER_CFG, load_meshes
     from umi_pipe.render import Scene3D
-    model = GripperModel(markers or MARKER_CFG)
     S = Scene3D(w, h)
-    S.add_gripper("g", model, style="flat", rgba=(1, 1, 1, 1), meshes=load_meshes(with_gopro=True), with_hand=True)
     S.set_camera(K, np.eye(4), znear=0.01, zfar=5.0)
-    idx_valid = np.where(valid)[0]
     kern = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * dilate + 1, 2 * dilate + 1)) if dilate > 0 else None
-    masks = np.zeros((len(valid), h, w), bool)
-    if not len(idx_valid):
+    n = len(next(iter(tracks.values()))[1])
+    masks = np.zeros((n, h, w), bool)
+    used = []
+    for name, (T_cam_body, valid) in tracks.items():
+        if not valid.any():
+            print(f"  WARN no ArUco pose of gripper {name!r} in this episode: not masked")
+            continue
+        model = GripperModel(markers or MARKER_CFG, index=name)
+        S.add_gripper(name, model, style="flat", rgba=(1, 1, 1, 1), meshes=load_meshes(with_gopro=True, model=model),
+                      with_hand=True)
+        used.append((name, T_cam_body, np.where(valid)[0], valid))
+    if not used:
         print("  WARN no ArUco pose in this episode: SLAM runs unmasked")
         return masks
-    for k in range(len(valid)):
-        j = k if valid[k] else idx_valid[np.argmin(np.abs(idx_valid - k))]
-        S.set_gripper("g", T_cam_body[j], 0.0)
+    for k in range(n):
+        for name, T_cam_body, idx_valid, valid in used:
+            j = k if valid[k] else idx_valid[np.argmin(np.abs(idx_valid - k))]
+            S.set_gripper(name, T_cam_body[j], 0.0)
         _, depth = S.render()
         m = (depth > 0).astype(np.uint8)
         masks[k] = (cv2.dilate(m, kern) if kern is not None else m) > 0
@@ -67,7 +76,8 @@ def main():
     ap.add_argument("--head-clip", required=True)
     ap.add_argument("--rows", type=int, required=True)
     ap.add_argument("--fps", type=float, required=True)
-    ap.add_argument("--poses", required=True, help="npz with T_cam_body (n,4,4) and valid (n,) from the ArUco pass")
+    ap.add_argument("--poses", required=True, help="npz from the ArUco pass: T_cam_body (n,4,4) and valid (n,) for the "
+                    "first gripper, T_cam_body_<name> / valid_<name> for each further gripper (e.g. _left)")
     ap.add_argument("--camera", required=True, help="cameras yaml (head entry)")
     ap.add_argument("--markers", default=None)
     ap.add_argument("--work", required=True)
@@ -81,7 +91,10 @@ def main():
 
     t0 = time.time()
     cams = yaml.safe_load(open(a.camera)); cam = cams.get("head", cams)
-    pz = np.load(a.poses); T_cam_body, valid = pz["T_cam_body"], pz["valid"].astype(bool)
+    pz = np.load(a.poses)
+    tracks = {"right" if "names" not in pz.files else str(pz["names"][0]): (pz["T_cam_body"], pz["valid"].astype(bool))}
+    for nm in (pz["names"][1:] if "names" in pz.files else []):
+        tracks[str(nm)] = (pz[f"T_cam_body_{nm}"], pz[f"valid_{nm}"].astype(bool))
     seq = os.path.join(a.work, "head")
     img_dir = os.path.join(seq, "extracted_images")
     shutil.rmtree(seq, ignore_errors=True); os.makedirs(img_dir)
@@ -104,7 +117,7 @@ def main():
     # 2. masks
     tr_dir = os.path.join(seq, f"tracks_0_{n}"); os.makedirs(tr_dir)
     masks = (np.zeros((n, h, w), bool) if a.no_mask else
-             render_masks(T_cam_body[:n], valid[:n], K, w, h, a.dilate, a.markers))
+             render_masks({k: (T[:n], v[:n]) for k, (T, v) in tracks.items()}, K, w, h, a.dilate, a.markers))
     np.save(os.path.join(tr_dir, "model_masks.npy"), masks)
 
     # 3. masked DROID-SLAM via HaWoR's wrapper, unchanged
