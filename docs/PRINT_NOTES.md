@@ -1,5 +1,10 @@
 # UMI pinch v3: printing on Bambu Lab H2D (0.4 mm nozzle)
 
+> **Default top cover: the DJI action-cam cover** (hat-clip bracket for the Osmo Nano, `cad/build_v4.py`).
+> Print `UMI_print1_covers_DJI_PLA.3mf` (bottom plate + DJI cover) instead of `UMI_print1_covers_PLA.3mf`, whose top cover
+> is the legacy GoPro version. Make both files with `cd cad && ../.venv-cad/bin/python export_dji_cover.py`
+> (written to the git-ignored `tmp_print/`; the cover's STL/STEP are in `cad/out_v4/`).
+
 ## Files
 | File | Filament | Parts |
 |---|---|---|
