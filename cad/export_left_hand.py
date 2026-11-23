@@ -5,8 +5,8 @@
         holders swapped and mirrored (thumb ring on the right holder, index ring on the left). Stanford's holders,
         gears and linkages are exact mirror images, so the racks still mesh. Covers (print 1 / the DJI covers plate)
         and the TPU fingers (print 3) are the same for both hands.
-  tmp_print/UMI_ring_mounts_LEFT_HAND_PLA.3mf                v5/v6: the left-hand ring-mount pairs (standard and
-        small-hand). The v6 holders, tag caps, cube, triggers and TPU fingers are the same for both hands.
+  tmp_print/UMI_ring_mounts_LEFT_HAND_PLA.3mf                v5/v6 (only where cad/build_v5.py exists, i.e. the
+        wearables-v5 branch): the left-hand ring-mount pairs; the v6 holders, caps, cube and fingers are hand-neutral.
 Run: cd cad && ../.venv-cad/bin/python export_left_hand.py
 """
 import os
@@ -41,7 +41,11 @@ if __name__ == "__main__":
     names = [n for n in V3.GROUPS["UMI_print2_internals_PLA"] if not n.startswith("finger_holder")] + list(lh)
     V3.write_3mf(os.path.join(PRINT_DIR, "main_v3", "UMI_print2_internals_PLA_LEFT_HAND.3mf"),
                  "UMI_print2_internals_PLA_LEFT_HAND", names, V3.pack(names))
-    # ring mounts, left hand
+    # ring mounts, left hand (v5/v6 designs; not on every branch)
+    if not os.path.isfile(os.path.join(_ROOT, "build_v5.py")):
+        print("wrote", os.path.join(PRINT_DIR, "main_v3", "UMI_print2_internals_PLA_LEFT_HAND.3mf"),
+              "(no cad/build_v5.py here: no ring-mount file)")
+        raise SystemExit(0)
     import build_v5 as B5
     rings = ["ring_mount_thumb_right_holder", "ring_mount_index_left_holder",
              "ring_mount_small_thumb_right_holder", "ring_mount_small_index_left_holder"]
