@@ -117,6 +117,11 @@ def hand_meshes(model):
     static = trimesh.util.concatenate([palm, forearm] + wrap)
     thumb = capsule([-28 * mm, -20 * mm, -30 * mm], [-50 * mm, 41 * mm, -27 * mm], 10 * mm)     # thumb ring centre
     index = capsule([28 * mm, -18 * mm, -40 * mm], [40 * mm, 71 * mm, -36.5 * mm], 9 * mm)     # index ring centre
+    if getattr(model, "hand", "right") == "left":       # left hand: the mirror image; thumb on the right holder
+        M = np.diag([-1.0, 1.0, 1.0, 1.0])
+        for m in (static, thumb, index):
+            m.apply_transform(M)
+        return static, {"right": thumb, "left": index}
     return static, {"left": thumb, "right": index}
 
 
@@ -194,7 +199,7 @@ class Scene3D:
     # ---- gripper ------------------------------------------------------------------------
     def add_gripper(self, key, model, style="textured", rgba=None, with_gopro=True, with_hand=False, meshes=None):
         """style 'textured': PLA/TPU parts + ArUco stickers (sim). style 'flat': one colour (preview ghost)."""
-        meshes = meshes or load_meshes(with_gopro)
+        meshes = meshes or load_meshes(with_gopro, model)
         nodes = {}
         for name, m in meshes.items():
             if style == "textured":

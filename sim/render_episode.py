@@ -7,11 +7,14 @@ Writes, in the HaWoR sequence layout so the real pipeline can run on it unchange
     <out>/extracted_images/0001.jpg ...   head-camera frames (JPEG q2, like the ffmpeg extraction)
     <out>/camera.yaml                      intrinsics (pinhole, principal point at the centre)
     <out>/gt.npz                           ground truth: T_world_cam, T_world_body, T_world_tcp, width, travel,
-                                           T_world_object, grasped, t
+                                           T_world_object, grasped, t (right gripper; T_world_cam always)
+    <out>/gt_left.npz (--hands left/both)  the same for the left gripper (marker IDs 10-17)
     <out>/gt_masks.npz (--save-masks)      packed bool (T,H,W) gripper+hand silhouette = what model_masks.npy should be
 
 World frame = the table frame (origin on the table top, z up; no marker is drawn). Trajectory: a pick-and-place of a 40 mm cube
 from keyframes (preset below) + head bob/turn + hand tremor; the gripper closes to the cube width.
+--hands both: two grippers at once, the right one doing the preset shifted +x, the left-hand gripper (config gripper
+'left', rings swapped, mirrored hand stand-in) doing its mirror image shifted -x, each with its own cube.
 """
 import os, sys, argparse, shutil, yaml
 os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
@@ -91,17 +94,31 @@ def main():
     ap.add_argument("--save-masks", action="store_true")
     ap.add_argument("--max-frames", type=int, default=0)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--hands", choices=["right", "left", "both"], default="right",
+                    help="right: the original single right-hand gripper; left: the left-hand gripper alone, mirrored "
+                         "trajectory; both: both at once, each shifted --spread to its side")
+    ap.add_argument("--spread", type=float, default=0.21, help="--hands both: x shift of each gripper's task [m]")
+    ap.add_argument("--chunk", type=int, default=0,
+                    help="render in fresh processes of this many frames (works around renderers that leak memory per "
+                         "frame, e.g. OSMesa: ~100 MB/frame at 2x supersampling); 0 = one process")
+    ap.add_argument("--worker", default=None, help=argparse.SUPPRESS)      # internal: 'start:end' frame range
     a = ap.parse_args()
+    if a.chunk and a.save_masks:
+        ap.error("--chunk does not support --save-masks")
 
     rng = np.random.default_rng(a.seed)
     cam = yaml.safe_load(open(a.camera))
     W, H, fps = cam["width"], cam["height"], cam["fps"]
     K = np.array([[cam["fx"], 0, cam["cx"]], [0, cam["fy"], cam["cy"]], [0, 0, 1.0]])
     ss = max(1, a.supersample)
-    model = GripperModel(a.markers)
+    actors = []          # one per gripper: model, sign (+1 right, -1 mirrored for the left hand), x shift
+    if a.hands in ("right", "both"):
+        actors.append(dict(model=GripperModel(a.markers, index="right"), sign=+1.0, shift=a.spread if a.hands == "both" else 0.0))
+    if a.hands in ("left", "both"):
+        actors.append(dict(model=GripperModel(a.markers, index="left"), sign=-1.0, shift=-a.spread if a.hands == "both" else 0.0))
 
-    keys = PRESETS[a.preset]
-    n = int(round(keys[-1][0] * fps)) + 1
+    keys0 = PRESETS[a.preset]
+    n = int(round(keys0[-1][0] * fps)) + 1
     if a.max_frames:
         n = min(n, a.max_frames)
 
@@ -121,57 +138,78 @@ def main():
         T = look_at_cv(head + lerp(bob, [tt])[0], look)
         return T @ make_T(R.from_rotvec(lerp(turn, [tt])[0]).as_matrix())
 
-    pos, rot, width = interp_keyframes(keys, t_all)
-    pos = pos + lerp(trem, t_all)
-    T_world_tcp = np.stack([make_T(rot[i].as_matrix(), pos[i]) for i in range(len(t_all))])
-    T_tcp_body = inv(model.T_body_tcp)
-    T_world_body = T_world_tcp @ T_tcp_body
-    travel = model.travel_from_width(width)
+    mx = np.array([-1.0, 1.0, 1.0])
+    for k, ac in enumerate(actors):
+        model, sg = ac["model"], ac["sign"]
+        mir = (lambda v: np.asarray(v, float) * mx) if sg < 0 else (lambda v: np.asarray(v, float))
+        sh = np.array([ac["shift"], 0.0, 0.0])
+        keys = [(t, mir(p) + sh, mir(fd), mir(up), w) for t, p, fd, up, w in keys0]
+        pick, place = mir(PICK) + sh, mir(PLACE) + sh
+        trem_k = trem if k == 0 else smooth_noise(rng, n + 1, fps, a.tremor, freqs=(2.0, 3.1, 4.7))
+        pos, rot, width = interp_keyframes(keys, t_all)
+        pos = pos + lerp(trem_k, t_all)
+        T_world_tcp = np.stack([make_T(rot[i].as_matrix(), pos[i]) for i in range(len(t_all))])
+        T_world_body = T_world_tcp @ inv(model.T_body_tcp)
+        travel = model.travel_from_width(width)
 
-    # object: rests at PICK, rides with the TCP while the jaws are at the cube width, rests at PLACE after release
-    kt = np.array([k[0] for k in keys]); kw = np.array([k[4] for k in keys])
-    closed = np.where(kw <= OBJ + 1e-6)[0]
-    grasped = np.zeros(len(t_all), bool)
-    if len(closed):
-        t0, t1 = kt[closed[0]], kt[closed[-1]]
-        grasped = (t_all >= t0) & (t_all <= t1)
-    T_world_obj = np.zeros((len(t_all), 4, 4))
-    T_tcp_obj = None; last = make_T(t=PICK)
-    for i in range(len(t_all)):
-        if grasped[i]:
-            if T_tcp_obj is None:
-                T_tcp_obj = inv(T_world_tcp[i]) @ last
-            last = T_world_tcp[i] @ T_tcp_obj
-        elif T_tcp_obj is not None:       # released: drop to the table, keep yaw
-            yaw = np.arctan2(last[1, 0], last[0, 0])
-            last = make_T(R.from_euler("z", yaw).as_matrix(), [last[0, 3], last[1, 3], OBJ / 2])
-            T_tcp_obj = None
-        T_world_obj[i] = last
+        # object: rests at PICK, rides with the TCP while the jaws are at the cube width, rests at PLACE after release
+        kt = np.array([q[0] for q in keys]); kw = np.array([q[4] for q in keys])
+        closed = np.where(kw <= OBJ + 1e-6)[0]
+        grasped = np.zeros(len(t_all), bool)
+        if len(closed):
+            t0, t1 = kt[closed[0]], kt[closed[-1]]
+            grasped = (t_all >= t0) & (t_all <= t1)
+        T_world_obj = np.zeros((len(t_all), 4, 4))
+        T_tcp_obj = None; last = make_T(t=pick)
+        for i in range(len(t_all)):
+            if grasped[i]:
+                if T_tcp_obj is None:
+                    T_tcp_obj = inv(T_world_tcp[i]) @ last
+                last = T_world_tcp[i] @ T_tcp_obj
+            elif T_tcp_obj is not None:       # released: drop to the table, keep yaw
+                yaw = np.arctan2(last[1, 0], last[0, 0])
+                last = make_T(R.from_euler("z", yaw).as_matrix(), [last[0, 3], last[1, 3], OBJ / 2])
+                T_tcp_obj = None
+            T_world_obj[i] = last
+        ac.update(T_world_tcp=T_world_tcp, T_world_body=T_world_body, travel=travel, width=width,
+                  grasped=grasped, T_world_obj=T_world_obj, key=f"g{k}")
 
     # ---- scene ----
     import trimesh
     S = Scene3D(W * ss, H * ss, bg=(0.58, 0.59, 0.61, 1.0))   # room grey beyond the wall/floor
     S.add_light((0.3, -0.4, -1.0), 3.0); S.add_light((-0.5, 0.6, -0.6), 1.0)
-    S.add_table(model)
+    S.add_table(actors[0]["model"])
     S.add_room()                       # textured floor + walls (texture for SLAM)
-    obj_node = S.add_mesh(trimesh.creation.box(extents=[OBJ] * 3), (0.75, 0.15, 0.12, 1.0))
-    g = S.add_gripper("g", model, with_gopro=not a.no_gopro, with_hand=not a.no_hand)
+    seg_nodes = {}
+    for ac in actors:
+        ac["obj_node"] = S.add_mesh(trimesh.creation.box(extents=[OBJ] * 3), (0.75, 0.15, 0.12, 1.0))
+        g = S.add_gripper(ac["key"], ac["model"], with_gopro=not a.no_gopro, with_hand=not a.no_hand)
+        seg_nodes.update({nd: (255, 255, 255) for nd in list(g["nodes"].values()) + [v[0] for v in g["tags"].values()]
+                          + list(g["hand"].values())})
 
     out_img = os.path.join(a.out, "extracted_images")
-    if os.path.isdir(out_img):
-        shutil.rmtree(out_img)
-    os.makedirs(out_img)
-    seg_nodes = {nd: (255, 255, 255) for nd in list(g["nodes"].values()) + [v[0] for v in g["tags"].values()]
-                 + list(g["hand"].values())}
+    f_lo, f_hi = (0, n) if a.worker is None else map(int, a.worker.split(":"))
+    if a.worker is None:
+        if os.path.isdir(out_img):
+            shutil.rmtree(out_img)
+        os.makedirs(out_img)
+    if a.chunk and a.worker is None:          # parent: render the frames in fresh worker processes, then write gt
+        import subprocess
+        S.close()
+        for lo in range(0, n, a.chunk):
+            subprocess.run([sys.executable, os.path.abspath(__file__)] + sys.argv[1:] + ["--worker", f"{lo}:{min(n, lo + a.chunk)}"],
+                           check=True)
+        f_lo = f_hi = n                        # nothing left to render here
     masks = []
     T_world_cam = np.zeros((n, 4, 4))
     nb = len(sub)
-    for f in range(n):
+    for f in range(f_lo, f_hi):
         acc = np.zeros((H * ss, W * ss, 3), np.float64)
         for j in range(nb):
             i = f * nb + j
-            S.set_gripper("g", T_world_body[i], travel[i])
-            S.scene.set_pose(obj_node, T_world_obj[i])
+            for ac in actors:
+                S.set_gripper(ac["key"], ac["T_world_body"][i], ac["travel"][i])
+                S.scene.set_pose(ac["obj_node"], ac["T_world_obj"][i])
             S.set_camera(K, cam_pose(t_all[i]), scale=ss)
             col, _ = S.render()
             acc += col[..., :3]
@@ -180,28 +218,42 @@ def main():
         img = acc / nb
         if ss > 1:
             img = cv2.resize(img, (W, H), interpolation=cv2.INTER_AREA)
-        img = np.clip(img + rng.normal(0, a.noise, img.shape), 0, 255).astype(np.uint8)
+        frng = np.random.default_rng([a.seed, f])                 # per-frame noise: the same with or without --chunk
+        img = np.clip(img + frng.normal(0, a.noise, img.shape), 0, 255).astype(np.uint8)
         cv2.imwrite(os.path.join(out_img, f"{f + 1:04d}.jpg"), cv2.cvtColor(img, cv2.COLOR_RGB2BGR),
                     [cv2.IMWRITE_JPEG_QUALITY, 95])
         if a.save_masks:
-            S.set_gripper("g", T_world_body[mid], travel[mid]); S.set_camera(K, T_world_cam[f], scale=ss)
+            for ac in actors:
+                S.set_gripper(ac["key"], ac["T_world_body"][mid], ac["travel"][mid])
+            S.set_camera(K, T_world_cam[f], scale=ss)
             seg = S.render_seg(seg_nodes)[..., 0] > 0
             masks.append(cv2.resize(seg.astype(np.uint8), (W, H), interpolation=cv2.INTER_NEAREST).astype(bool))
         if f % 30 == 0:
             print(f"frame {f + 1}/{n}", flush=True)
-    S.close()
+    if not (a.chunk and a.worker is None):
+        S.close()
+    if a.worker is not None:
+        return
+    for f in range(n):                         # T_world_cam for every frame (workers rendered them elsewhere)
+        T_world_cam[f] = cam_pose(t_all[f * nb + nb // 2])
 
     mids = np.arange(n) * nb + nb // 2
     with open(os.path.join(a.out, "camera.yaml"), "w") as fh:
         yaml.safe_dump(cam, fh, sort_keys=False)
-    np.savez_compressed(os.path.join(a.out, "gt.npz"), t=np.arange(n) / fps, T_world_cam=T_world_cam,
-                        T_world_body=T_world_body[mids], T_world_tcp=T_world_tcp[mids], width=width[mids],
-                        travel=travel[mids], T_world_object=T_world_obj[mids], grasped=grasped[mids],
-                        preset=a.preset, K=K)
+    for ac in actors:
+        gt = dict(t=np.arange(n) / fps, T_world_cam=T_world_cam, T_world_body=ac["T_world_body"][mids],
+                  T_world_tcp=ac["T_world_tcp"][mids], width=ac["width"][mids], travel=ac["travel"][mids],
+                  T_world_object=ac["T_world_obj"][mids], grasped=ac["grasped"][mids], preset=a.preset, K=K,
+                  gripper=ac["model"].name, hands=a.hands)
+        np.savez_compressed(os.path.join(a.out, f"gt{ac['model'].suffix}.npz"), **gt)
+    if "" not in [ac["model"].suffix for ac in actors]:      # gripper_pose.py reads T_world_cam from gt.npz
+        np.savez_compressed(os.path.join(a.out, "gt.npz"), t=np.arange(n) / fps, T_world_cam=T_world_cam, K=K,
+                            preset=a.preset, hands=a.hands)
     if a.save_masks:
         m = np.stack(masks)
         np.savez_compressed(os.path.join(a.out, "gt_masks.npz"), packed=np.packbits(m, axis=-1), shape=m.shape)
-    print(f"wrote {n} frames to {out_img}")
+    print(f"wrote {n} frames to {out_img} ({', '.join(ac['model'].name for ac in actors)} gripper"
+          f"{'s' if len(actors) > 1 else ''})")
 
 
 if __name__ == "__main__":

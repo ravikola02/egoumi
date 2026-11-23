@@ -55,6 +55,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--seq", required=True)
     ap.add_argument("--markers", default=MARKER_CFG)
+    ap.add_argument("--gripper", default="0", help="gripper in the marker config: index or name (right, left); "
+                    "the first one writes <seq>/gripper_pose/, others <seq>/gripper_pose_<name>/")
     ap.add_argument("--camera", default=None, help="default <seq>/camera.yaml")
     ap.add_argument("--cam-source", default="gt", choices=["gt", "table", "none"])
     ap.add_argument("--max-gap", type=int, default=5, help="max frames to interpolate across")
@@ -64,7 +66,7 @@ def main():
     ap.add_argument("--min-body-tags", type=int, default=1, help="frames with fewer body tags are invalid")
     a = ap.parse_args()
 
-    model = GripperModel(a.markers)
+    model = GripperModel(a.markers, index=a.gripper)
     K, dist, _ = load_camera(a.camera or os.path.join(a.seq, "camera.yaml"))
     frames = sorted(glob.glob(os.path.join(a.seq, "extracted_images", "*.jpg")))
     n = len(frames)
@@ -132,7 +134,7 @@ def main():
     tr_f[width_src == SRC_INTERP] = Tw[width_src == SRC_INTERP, 0, 3]
     width = model.width_from_travel(np.clip(tr_f, 0, model.travel_max))
 
-    out = os.path.join(a.seq, "gripper_pose")
+    out = os.path.join(a.seq, "gripper_pose" + model.suffix)
     os.makedirs(out, exist_ok=True)
     np.savez_compressed(os.path.join(out, "poses.npz"), T_world_cam=T_world_cam, cam_src=cam_src,
                         T_cam_body=T_cam_body_all, body_src=body_src, world_src=world_src,

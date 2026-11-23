@@ -2,6 +2,7 @@
 """Printable sheet of the gripper's ArUco markers, exact size, with a matching back page.
 
     python3 scripts/make_marker_sheet.py                       # -> assets/print/egoumi_aruco_markers.pdf
+    python3 scripts/make_marker_sheet.py --gripper left         # -> assets/print/egoumi_aruco_markers_left.pdf (IDs 10-17)
     python3 scripts/make_marker_sheet.py --flip short          # printer flips on the short edge
 
 Page 1 (front): every marker in configs/gripper_markers.yaml at its exact size (vector modules), inside its white
@@ -83,14 +84,20 @@ def arrow_up(c, cx, ytop, size):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--markers", default=os.path.join(ROOT, "configs", "gripper_markers.yaml"))
-    ap.add_argument("--out", default=os.path.join(ROOT, "assets", "print", "egoumi_aruco_markers.pdf"))
+    ap.add_argument("--out", default=None, help="default assets/print/egoumi_aruco_markers.pdf (first gripper), "
+                    "egoumi_aruco_markers_<name>.pdf for the others")
+    ap.add_argument("--gripper", default="0", help="gripper in the marker config: index or name (right, left)")
     ap.add_argument("--flip", choices=["long", "short"], default="long",
                     help="duplex binding edge: long (default, back mirrored left-right) or short (mirrored top-bottom)")
     a = ap.parse_args()
 
     cfg = yaml.safe_load(open(a.markers))
     dictionary = cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, cfg["dictionary"]))
-    g = cfg["grippers"][0]
+    names = [x["name"] for x in cfg["grippers"]]
+    gi = int(a.gripper) if a.gripper.isdigit() else names.index(a.gripper)
+    g = cfg["grippers"][gi]
+    if a.out is None:
+        a.out = os.path.join(ROOT, "assets", "print", "egoumi_aruco_markers" + ("" if gi == 0 else f"_{g['name']}") + ".pdf")
     tags = []
     for kind, lst in (("body", g["body_tags"]), ("jaw", g["jaw_tags"])):
         for d in lst:
@@ -101,12 +108,12 @@ def main():
 
     os.makedirs(os.path.dirname(a.out), exist_ok=True)
     c = canvas.Canvas(a.out, pagesize=A4)
-    c.setTitle("EgoUMI ArUco markers (front + back)")
+    c.setTitle(f"EgoUMI {g.get('hand', g['name'])}-hand gripper ArUco markers (front + back)")
 
     # ---------------- front ----------------
     crosses(c)
     c.setFillGray(0); c.setFont("Helvetica-Bold", 11)
-    c.drawString(14 * mm, 284 * mm, f"EgoUMI gripper ArUco markers  -  {cfg['dictionary']}, IDs "
+    c.drawString(14 * mm, 284 * mm, f"EgoUMI {g.get('hand', g['name'])}-hand gripper ArUco markers  -  {cfg['dictionary']}, IDs "
                                     f"{min(t['id'] for t in tags)}-{max(t['id'] for t in tags)}  -  FRONT")
     c.setFont("Helvetica", 7.5)
     c.drawString(14 * mm, 279.5 * mm, "Print at 100 % (Actual size), double-sided, flip on the "
@@ -142,8 +149,7 @@ def main():
     c.setFillGray(0); c.setFont("Helvetica-Bold", 11)
     c.drawString(14 * mm, 284 * mm, "BACK  -  where each marker goes (behind its marker when printed double-sided)")
     c.setFont("Helvetica", 7.5)
-    c.drawString(14 * mm, 279.5 * mm, "Left / right = holding the gripper in your right hand, fingers pointing away from "
-                                      "you, GoPro on top. The arrow marks the marker's TOP edge.")
+    c.drawString(14 * mm, 279.5 * mm, "Left / right = the gripper's own sides: fingers pointing away from you, camera on top (the same for both grippers). The arrow marks the marker's TOP edge.")
     for t in tags:
         bx, by = mirror(*t["box"])
         s = t["sticker"]

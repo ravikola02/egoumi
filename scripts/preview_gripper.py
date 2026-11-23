@@ -203,6 +203,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--seq", required=True)
     ap.add_argument("--markers", default=MARKER_CFG)
+    ap.add_argument("--gripper", default="0", help="gripper in the marker config: index or name (right, left); "
+                    "reads gripper_pose<_name>/ and gt<_name>.npz, writes preview<_name>/")
     ap.add_argument("--out", default=None, help="default <seq>/preview/gripper_preview.mp4")
     ap.add_argument("--panel-width", type=int, default=960)
     ap.add_argument("--alpha", type=float, default=0.55, help="overlay opacity of the estimated mesh")
@@ -218,40 +220,43 @@ def main():
     ap.add_argument("--ego-up", type=float, default=0.25, help="ego view: metres above the head camera")
     ap.add_argument("--ego-smooth", type=float, default=0.08, help="ego view: EMA alpha on the chase camera (1 = rigid)")
     ap.add_argument("--max-frames", type=int, default=0)
+    ap.add_argument("--metrics-only", action="store_true", help="write metrics.json (needs gt) and stop: no rendering")
     ap.add_argument("--fps", type=float, default=None)
     a = ap.parse_args()
 
-    model = GripperModel(a.markers)
+    model = GripperModel(a.markers, index=a.gripper)
     cam = yaml.safe_load(open(os.path.join(a.seq, "camera.yaml")))
     K = np.array([[cam["fx"], 0, cam["cx"]], [0, cam["fy"], cam["cy"]], [0, 0, 1.0]])
     W, H = cam["width"], cam["height"]
     pw = a.panel_width; s = pw / W; ph = int(round(H * s))
     Ks = K.copy(); Ks[:2, :2] *= s; Ks[:2, 2] = (K[:2, 2] + 0.5) * s - 0.5     # OpenCV K at panel resolution
     frames = sorted(glob.glob(os.path.join(a.seq, "extracted_images", "*.jpg")))
-    pz = np.load(os.path.join(a.seq, "gripper_pose", "poses.npz"))
+    pz = np.load(os.path.join(a.seq, "gripper_pose" + model.suffix, "poses.npz"))
     p = {k: pz[k] for k in pz.files}
-    dets = json.load(open(os.path.join(a.seq, "gripper_pose", "detections.json")))
+    dets = json.load(open(os.path.join(a.seq, "gripper_pose" + model.suffix, "detections.json")))
     n = min(len(frames), len(p["T_world_tcp"]))
     if a.max_frames:
         n = min(n, a.max_frames)
     p = {k: (v[:n] if isinstance(v, np.ndarray) and v.ndim and len(v) >= n and k not in ("K", "dist") else v) for k, v in p.items()}
-    gpath = os.path.join(a.seq, "gt.npz")
+    gpath = os.path.join(a.seq, f"gt{model.suffix}.npz")
     g = dict(np.load(gpath)) if os.path.isfile(gpath) else None
     fps = a.fps or cam.get("fps", 30)
     t = np.arange(n) / fps
 
-    out_dir = os.path.join(a.seq, "preview"); os.makedirs(out_dir, exist_ok=True)
+    out_dir = os.path.join(a.seq, "preview" + model.suffix); os.makedirs(out_dir, exist_ok=True)
     out = a.out or os.path.join(out_dir, "gripper_preview.mp4")
     metrics, e_tcp, e_w = (compute_metrics(p, g, model, n) if g is not None else ({}, None, None))
     if metrics:
         with open(os.path.join(out_dir, "metrics.json"), "w") as fh:
             json.dump(metrics, fh, indent=1)
         print(json.dumps(metrics, indent=1))
+    if a.metrics_only:
+        return
     npan = 3 if a.ego else 2
     tl, xr = timeline(t, p, e_tcp, e_w, g, model, os.path.join(out_dir, "timeline.png"), W=npan * pw)
     tl = cv2.resize(tl, (npan * pw, tl.shape[0]))
 
-    meshes = load_meshes(with_gopro=True)
+    meshes = load_meshes(with_gopro=True, model=model)
     # camera view: world = camera frame, gripper at T_cam_body
     Sc = Scene3D(pw, ph, ambient=0.45); Sc.add_light((0.2, 0.4, 1.0), 1.8)
     Sc.add_gripper("est", model, style="flat", rgba=EST, meshes=meshes)

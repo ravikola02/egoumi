@@ -40,11 +40,19 @@ class Tag:
 
 class GripperModel:
     def __init__(self, cfg_path=MARKER_CFG, index=0):
+        """index: position in `grippers` or the gripper's name ('right', 'left')."""
         with open(cfg_path) as f:
             self.cfg = yaml.safe_load(f)
+        names = [x["name"] for x in self.cfg["grippers"]]
+        if isinstance(index, str):
+            index = int(index) if index.isdigit() else names.index(index)
         g = self.cfg["grippers"][index]
         off = float(self.cfg.get("sticker_offset", 0.0))
+        self.index = index
         self.name = g["name"]
+        self.hand = g.get("hand", "right")
+        # output naming: the first gripper keeps the original paths (gripper_pose/, preview/, gt.npz)
+        self.suffix = "" if index == 0 else f"_{self.name}"
         self.body_tags = [Tag(d, off) for d in g["body_tags"]]
         self.jaw_tags = [Tag(d, off, d["axis"]) for d in g["jaw_tags"]]
         self.moving_parts = g["moving_parts"]
@@ -89,10 +97,26 @@ class GripperModel:
         return cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
 
 
-def load_meshes(with_gopro=True):
+# left-hand holders are the right-hand ones mirrored across the YZ plane (Stanford's holders are exact mirrors)
+MIRRORED_PARTS = {"finger_holder_left_index": "finger_holder_right_index",
+                  "finger_holder_right_thumb": "finger_holder_left_thumb"}
+
+
+def load_meshes(with_gopro=True, model=None):
+    """Meshes in the body frame. The holder names come from the model's moving_parts (right-hand set by default)."""
     import trimesh
-    names = list(STATIC_PARTS) + ["finger_holder_left_thumb", "finger_holder_right_index",
-                                  "soft_finger_left", "soft_finger_right"]
+    holders = ["finger_holder_left_thumb", "finger_holder_right_index"]
+    if model is not None:
+        holders = [p for parts in model.moving_parts.values() for p in parts if p.startswith("finger_holder")]
+    names = list(STATIC_PARTS) + holders + ["soft_finger_left", "soft_finger_right"]
     if with_gopro:
         names.append("camera_dummy")
-    return {n: trimesh.load(os.path.join(MESH_DIR, f"{n}.stl")) for n in names}
+    out = {}
+    for n in names:
+        if n in MIRRORED_PARTS:
+            m = trimesh.load(os.path.join(MESH_DIR, f"{MIRRORED_PARTS[n]}.stl"))
+            m.apply_transform(np.diag([-1.0, 1.0, 1.0, 1.0]))
+            out[n] = m
+        else:
+            out[n] = trimesh.load(os.path.join(MESH_DIR, f"{n}.stl"))
+    return out

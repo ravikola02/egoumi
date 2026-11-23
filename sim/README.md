@@ -59,7 +59,37 @@ Findings:
   (sheared jaw-tag textures; sticker normals pointing into the face, so stickers got only ambient light). They are
   removed until re-run; the claim that holder-top jaw tags are never visible came from those bugs.
 
-## Not modelled / caveats
+## Two grippers (2026-11-23)
+`configs/gripper_markers.yaml` has a second gripper, `left`: the same body and marker positions with the rings swapped
+(thumb ring on the right holder, index ring on the left) and marker IDs 10-17. `render_episode.py --hands both` renders
+both at once: the right gripper does the preset shifted `--spread` (21 cm) to +x, the left-hand gripper (mirrored
+holders and a mirrored hand stand-in) does the mirror image shifted to -x, each with its own cube. `gripper_pose.py`
+and `preview_gripper.py` take `--gripper right|left`; the first gripper keeps the original paths (`gripper_pose/`,
+`preview/`, `gt.npz`), the left one writes `gripper_pose_left/`, `preview_left/`, `gt_left.npz`.
+
+```bash
+sim/run_sim_test.sh both --hands both          # render both, then pose + preview per gripper
+# software rendering (no GPU): PYOPENGL_PLATFORM=osmesa PREVIEW_ARGS=--metrics-only sim/run_sim_test.sh both --hands both --chunk 40
+```
+
+Results (software-rendered with OSMesa, 1080p, cam source gt; the baseline matches the GPU numbers above within noise):
+
+| Pick-and-place | TCP median / p90 / max [mm] | rot median [deg] | single-tag frames | width err median / max [mm] |
+|---|---|---|---|---|
+| right hand alone (baseline, as above) | 2.6 / 6.2 / 21.7 | 0.44 | 40 % | 0.17 / 0.69 |
+| two hands: right gripper | 1.8 / 4.5 / 12.4 | 0.29 | 29 % | 0.00 / 0.48 |
+| two hands: left gripper | 1.8 / 3.9 / 9.5 | 0.34 | 29 % | 0.06 / 4.47 |
+
+- The like-for-like comparison is the two grippers in the two-hand episode, a mirror image of each other: the
+  left-hand gripper tracks as well as the right one. Both are tracked in every frame from their own IDs.
+- The two-hand numbers are better than the baseline because each task is shifted 21 cm to the side, so the head
+  camera sees the cubes more from the side (more tags per frame), not because of the second hand.
+- One left-gripper frame has a 4.5 mm width error from the head camera's fallback jaw estimate; the wrist camera is the
+  width source in the real pipeline.
+- Software rendering: OSMesa leaks ~100 MB per frame at 2x supersampling, so `--chunk 40` renders in fresh processes;
+  the per-frame pixel noise is seeded per frame, so chunked and single-process renders are identical.
+
+
 - Lens distortion (renders are ideal pinhole), rolling shutter, auto-exposure, specular glare, sticker wrinkles.
 - Gears, linkages and slider are not articulated (hidden under the cover); fingers are rigid boxes in the hand stand-in.
 - TCP point is an estimate from the soft-finger bounding box (`tcp_in_body`).
