@@ -44,6 +44,11 @@ Made with `scripts/episode_preview.py` + `scripts/preview_gripper.py --style pre
 - The gripper-camera mount is nominal; on real captures the gripper value is the min/max-normalised jaw signal
   (`scripts/gripper_minmax.py`), monotonic but not linear in millimetres. Open and close fully at the start of each
   session to set its range.
+- A gripper camera that is not rigid on the body (the clip-on DJI cover shifts between and within sessions) smears the
+  jaw tags' image paths; use `gripper_minmax.py --measure separation --group session` (distance between the two jaw
+  tags, normalised per recording session). Pass `--gripper left` for the left-hand gripper (tags 16/17, `left.gripper`).
+- The Osmo Nano head records 4:3 (1920x1440) in some modes; the default `--image-size 1280x720` squashes it. Use
+  `--image-size auto` (each camera keeps its aspect at 720 px height).
 - The dataset world is the first head-camera frame (as h2r_collection), not gravity-aligned.
 
 ## Recording

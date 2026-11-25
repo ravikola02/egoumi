@@ -69,7 +69,8 @@ def main(argv=None) -> int:
     p.add_argument("--cam-motion", help="passed to the converter (aruco: droid_slam (default) | sim_gt | none)")
     p.add_argument("--no-slam-mask", action="store_true", help="passed to the converter (SLAM without the mask)")
     p.add_argument("--fps", default="auto", help="auto = the slowest camera's rate, rounded to an integer")
-    p.add_argument("--image-size", default="1280x720")
+    p.add_argument("--image-size", default="1280x720",
+                   help="WxH for every camera, auto (each camera's own aspect at 720 px height), or head=WxH,wrist_left=WxH")
     p.add_argument("--skip-tag", action="store_true", help="reuse the existing cut sheet + clips")
     p.add_argument("--overwrite", action="store_true", help="replace an existing dataset dir")
     p.add_argument("--python", default=sys.executable, help="interpreter for both stages")

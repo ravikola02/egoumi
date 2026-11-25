@@ -316,7 +316,8 @@ class ArucoSource(_GripperBase):
         import os
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.camera_path, self.markers_path = os.path.abspath(camera), markers
-        self.slam = {"cache": slam_cache or os.path.join(root, "data", "slam_cache"),
+        # absolute: head_slam.py runs HaWoR from inside its repo, so a relative cache path would not resolve there
+        self.slam = {"cache": os.path.abspath(slam_cache or os.path.join(root, "data", "slam_cache")),
                      "python": hawor_python or os.environ.get(
                          "HAWOR_PYTHON", os.path.expanduser("~/anaconda3/envs/hawor/bin/python")),
                      "repo": hawor_repo or os.environ.get(

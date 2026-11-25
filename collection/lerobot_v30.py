@@ -245,6 +245,10 @@ class V30DatasetWriter:
         self.episode_rows: List[Dict] = []
         self._ep_stats: List[Dict] = []
 
+    def size_of(self, role: str) -> Tuple[int, int]:
+        """(w, h) of one camera's stream: `size` is one (w, h) for every camera or a {role: (w, h)} dict."""
+        return self.size[role] if isinstance(self.size, dict) else self.size
+
     @property
     def episode_count(self) -> int:
         return len(self.episode_rows)
@@ -330,7 +334,7 @@ class V30DatasetWriter:
                 continue
 
             tmp = self._tmp_dir / video_key / f"episode_{episode_index:06d}.mp4"
-            cnt = encode_video(clip, tmp, self.fps, n, self.size)
+            cnt = encode_video(clip, tmp, self.fps, n, self.size_of(role))
             frame_counts[role] = cnt
             ep_mb = tmp.stat().st_size / (1 << 20)
             ep_dur = video_duration_s(tmp)
@@ -349,7 +353,7 @@ class V30DatasetWriter:
             v["dur"] += ep_dur
 
             samples = sample_video_frames(tmp, IMAGE_SAMPLES_PER_EPISODE,
-                                          self.size)
+                                          self.size_of(role))
             if samples is not None:
                 video_samples[video_key] = samples
             if verbose:

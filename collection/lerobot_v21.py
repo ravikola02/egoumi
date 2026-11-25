@@ -40,6 +40,10 @@ class V21DatasetWriter:
         self.episode_rows: List[Dict] = []
         self._ep_stats: List[Dict] = []
 
+    def size_of(self, role: str) -> Tuple[int, int]:
+        """(w, h) of one camera's stream: `size` is one (w, h) for every camera or a {role: (w, h)} dict."""
+        return self.size[role] if isinstance(self.size, dict) else self.size
+
     @property
     def episode_count(self) -> int:
         return len(self.episode_rows)
@@ -70,9 +74,9 @@ class V21DatasetWriter:
                 continue
             video_key = self.camera_keys[role]
             out = self._path(V21_VIDEO_PATH, episode_index, video_key=video_key)
-            cnt = encode_video(clip, out, self.fps, n, self.size)
+            cnt = encode_video(clip, out, self.fps, n, self.size_of(role))
             frame_counts[role] = cnt
-            samples = sample_video_frames(out, IMAGE_SAMPLES_PER_EPISODE, self.size)
+            samples = sample_video_frames(out, IMAGE_SAMPLES_PER_EPISODE, self.size_of(role))
             if samples is not None:
                 video_samples[video_key] = samples
             if verbose:

@@ -101,6 +101,8 @@ Camera keys: `observation.images.{head,wrist_left,wrist_right}` (identical to h2
 | `sim_gt` | the sim ground truth only (`sim/render_capture.py` sessions) | testing the trajectory plumbing |
 
 - Episode length = the shortest camera clip at `--fps` (floor), so every camera has exactly one frame per row.
+- `--image-size`: `WxH` for every camera (default 1280x720), `auto` = each camera's own aspect ratio at 720 px height
+  (`auto:H` for another height; a 4:3 head becomes 960x720 instead of being squashed), or `head=WxH,wrist_left=WxH`.
 - `--fps auto` (default) keeps the cameras' own rate instead of resampling (h2r_collection forced 30 for HaWoR).
 - v2.1 output also writes `meta/episodes_stats.jsonl`, so LeRobot's own v2.1 → v3.0 converter accepts it unchanged.
 - `meta/egoumi_episodes.json` maps dataset episode indices to cut-sheet names and per-camera frame counts, plus the

@@ -46,6 +46,37 @@ def parse_size(s: str) -> Tuple[int, int]:
     return int(w), int(h)
 
 
+def probe_wh(path: Path) -> Tuple[int, int]:
+    out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height",
+                          "-of", "csv=p=0", str(path)], capture_output=True, text=True).stdout.strip()
+    w, h = out.split(",")[:2]
+    return int(w), int(h)
+
+
+def resolve_sizes(spec: str, episodes, roles: List[str]):
+    """--image-size -> one (w, h) for every camera, or {role: (w, h)}.
+    'WxH': every camera (the old behaviour; a 4:3 head encoded at 1280x720 is squashed).
+    'auto': each camera keeps its clip's aspect ratio at 720 px height (width rounded to even): Osmo Nano 4:3 head
+            1920x1440 -> 960x720, 16:9 wrists -> 1280x720.
+    'auto:H': the same at H px height.  'head=960x720,wrist_left=1280x720': explicit per camera (others: 1280x720)."""
+    spec = spec.strip().lower()
+    if spec.startswith("auto"):
+        H = int(spec.split(":")[1]) if ":" in spec else 720
+        out = {}
+        for role in roles:
+            clip = next(ep.clips[role] for ep in episodes if role in ep.clips)
+            w, h = probe_wh(clip)
+            out[role] = (int(round(H * w / h / 2.0)) * 2, H)
+        return out
+    if "=" in spec:
+        given = {k.strip(): parse_size(v) for k, v in (x.split("=") for x in spec.split(","))}
+        unknown = set(given) - set(CAMERA_KEYS)
+        if unknown:
+            sys.exit(f"--image-size: unknown camera(s) {sorted(unknown)}; use {sorted(CAMERA_KEYS)}")
+        return {role: given.get(role, (1280, 720)) for role in roles}
+    return parse_size(spec)
+
+
 def episode_length(clips: Dict[str, Path], fps: float) -> Tuple[int, Dict[str, float]]:
     """Frames every camera can supply at `fps`: floor(shortest duration * fps)."""
     durs = {role: video_duration_s(p) for role, p in clips.items()}
@@ -62,8 +93,7 @@ def probe_fps(path: Path) -> float:
     return float(Fraction(out)) if out and out != "0/0" else 30.0
 
 
-def build_features(fps: float, size: Tuple[int, int], roles: List[str], source) -> Dict:
-    w, h = size
+def build_features(fps: float, size, roles: List[str], source) -> Dict:
     features: Dict[str, Dict] = {}
     if source.dim:
         for key in ["observation.state", "action"] + list(getattr(source, "extra_keys", [])):
@@ -76,6 +106,7 @@ def build_features(fps: float, size: Tuple[int, int], roles: List[str], source) 
         "task_index":    {"dtype": "int64",   "shape": [1], "names": None},
     })
     for role in roles:
+        w, h = size[role] if isinstance(size, dict) else size
         features[CAMERA_KEYS[role]] = {
             "dtype": "video", "shape": [h, w, 3], "names": ["height", "width", "channel"],
             "info": {"video.fps": float(fps), "video.codec": "h264", "video.pix_fmt": "yuv420p",
@@ -120,7 +151,9 @@ def main(argv=None) -> int:
     p.add_argument("--fps", default="auto",
                    help="dataset + video fps; auto (default) = the slowest camera's rate rounded to an integer "
                         "(Osmo Nano head 59.94 + wrists 29.97 -> 30); faster cameras are resampled")
-    p.add_argument("--image-size", default="1280x720", help="WxH of the encoded camera streams")
+    p.add_argument("--image-size", default="1280x720",
+                   help="encoded camera streams: WxH for every camera (default 1280x720; squashes a 4:3 head), 'auto' = "
+                        "each camera's own aspect at 720 px height ('auto:H' for H px), or 'head=WxH,wrist_left=WxH'")
     p.add_argument("--session-id", help="recorded in info.json (default: cut-sheet parent dir name)")
     p.add_argument("--limit", type=int, help="process at most N episodes")
     p.add_argument("--overwrite", action="store_true", help="delete an existing --out first")
@@ -132,7 +165,6 @@ def main(argv=None) -> int:
             sys.exit(f"{out_root} exists; pass --overwrite to replace it")
         import shutil
         shutil.rmtree(out_root)
-    size = parse_size(args.image_size)
     if args.state_source == "aruco" and not args.camera:
         args.camera = str(REPO_ROOT / "configs" / "cameras_osmo_nano.yaml")
         print(f"  camera:   {args.camera} (h2r_collection DJI Osmo Nano intrinsics)")
@@ -148,6 +180,7 @@ def main(argv=None) -> int:
     if args.limit:
         episodes = episodes[: args.limit]
     roles = [r for r in ROLES if any(r in ep.clips for ep in episodes)]
+    size = resolve_sizes(args.image_size, episodes, roles)
     if args.fps == "auto":
         # the slowest camera sets the dataset rate, rounded to an integer for LeRobot v3 (Osmo Nano: head 59.94,
         # wrists 29.97 -> 30, the rate h2r_collection resampled to); faster cameras are resampled down by ffmpeg
@@ -165,7 +198,8 @@ def main(argv=None) -> int:
     print(f"  version:  LeRobot {'v3.0' if args.dataset_version == 'v30' else 'v2.1'}")
     print(f"  cameras:  {roles}")
     print(f"  state:    {source.name}" + ("  (PLACEHOLDER)" if source.placeholder else ""))
-    print(f"  size:     {size[0]}x{size[1]} @ {args.fps:g} fps")
+    print("  size:     " + (", ".join(f"{r} {w}x{h}" for r, (w, h) in size.items()) if isinstance(size, dict)
+                             else f"{size[0]}x{size[1]}") + f" @ {args.fps:g} fps")
     print(f"  out:      {out_root}")
 
     tasks: List[str] = []
