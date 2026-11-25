@@ -65,7 +65,9 @@ def _best_planar(obj, img, K, dist, seeds, T_prev=None):
     for i in range(n):
         rv, tv = cv2.solvePnPRefineLM(obj, img, K, dist, rvs[i].copy(), tvs[i].copy())
         cands.append(rvec_tvec_to_T(rv, tv))
-    cands = [T for T in cands if T[2, 3] > 0]
+    cands = [T for T in cands if np.isfinite(T).all() and T[2, 3] > 0]
+    if not cands:
+        return None, False
     errs = np.array([_rms(_reproj(K, dist, T, obj), img) for T in cands])
     order = np.argsort(errs)
     best = cands[order[0]]
@@ -101,6 +103,9 @@ def estimate_body(dets, model, K, dist, T_prev=None, outlier_px=3.0, min_tags=1)
                 # All tags in one plane (e.g. only the two top-cover tags): planar PnP has a two-fold ambiguity and
                 # SQPNP can settle on the mirrored pose. Also try both IPPE solutions and keep the best reprojection.
                 T, confident = _best_planar(obj, img, K, dist, [T], T_prev)
+        # degenerate corner sets (e.g. a heavily foreshortened tag) can make PnP return NaN: no pose for this frame
+        if T is None or not np.isfinite(T).all():
+            return None
         proj = _reproj(K, dist, T, obj)
         per_tag = [_rms(proj[4 * k:4 * k + 4], img[4 * k:4 * k + 4]) for k in range(len(ids))]
         worst = int(np.argmax(per_tag))
