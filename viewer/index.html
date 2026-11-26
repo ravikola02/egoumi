@@ -47,6 +47,7 @@
       <label>Speed <select id="speed"><option>0.25</option><option>0.5</option><option selected>1</option><option>2</option></select></label>
       <button id="vFront">Front</button><button id="vTop">Top</button><button id="vFollow">Follow head</button>
       <button id="vTrack" class="on">Whole track</button>
+      <button id="vAuto" class="on">Autoplay</button>
       <span class="hint">space = play/pause, &larr;/&rarr; = one frame, drag = orbit, scroll = zoom</span>
     </div>
     <div class="card kv" id="info"></div>
@@ -199,11 +200,13 @@ async function load(name) {
   const blob = await fetch(`${name}.mp4`).then(r => r.blob());          // blob URL: seeking works without range requests
   if (video.src) URL.revokeObjectURL(video.src);
   video.src = URL.createObjectURL(blob); video.playbackRate = +$('speed').value;
+  if (autoplay) video.play().catch(() => {});            // muted, so the browser allows it
   $('status').textContent = `${name}: ${D.n} rows at ${D.fps} fps`;
   try { localStorage.setItem('viewer-ep', name); } catch (e) {}
 }
 
-const idx = await fetch('index.json').then(r => r.json());
+let autoplay = true; try { autoplay = localStorage.getItem('viewer-autoplay') !== 'off'; } catch (e) {}
+let idx = await fetch('index.json').then(r => r.json());
 meshes = await fetch('meshes.json').then(r => r.json());
 $('collection').textContent = idx.collection;
 for (const e of idx.episodes) $('ep').add(new Option(e, e));
@@ -213,6 +216,19 @@ $('ep').onchange = e => load(e.target.value);
 $('speed').onchange = e => video.playbackRate = +e.target.value;
 $('vFront').onclick = viewFront; $('vTop').onclick = viewTop;
 $('vFollow').onclick = () => { follow = !follow; $('vFollow').classList.toggle('on', follow); followTgt = null; };
+$('vAuto').classList.toggle('on', autoplay); video.loop = !autoplay;
+$('vAuto').onclick = () => {
+  autoplay = !autoplay; $('vAuto').classList.toggle('on', autoplay); video.loop = !autoplay;
+  try { localStorage.setItem('viewer-autoplay', autoplay ? 'on' : 'off'); } catch (e) {}
+  if (autoplay && video.paused) video.play().catch(() => {});
+};
+video.addEventListener('ended', async () => {          // autoplay: next episode, wrapping; picks up new ones
+  if (!autoplay) return;
+  try { idx = await fetch('index.json', { cache: 'no-store' }).then(r => r.json()); } catch (e) {}
+  for (const e of idx.episodes) if (![...$('ep').options].some(o => o.value === e)) $('ep').add(new Option(e, e));
+  const i = idx.episodes.indexOf($('ep').value), next = idx.episodes[(i + 1) % idx.episodes.length];
+  $('ep').value = next; await load(next);
+});
 $('vTrack').onclick = () => { const on = !$('vTrack').classList.contains('on'); $('vTrack').classList.toggle('on', on); setTrack(on); };
 window.addEventListener('keydown', e => {
   if (e.target.tagName === 'SELECT') return;
