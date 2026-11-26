@@ -32,7 +32,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT); sys.path.insert(0, os.path.join(ROOT, "collection"))
 from state_sources import row_frames, scaled_K      # noqa: E402
 
-GRIP = 13
+GRIP = {"right": 13, "left": 6}               # gripper column of the 14-d h2r state
 
 
 def main():
@@ -42,6 +42,8 @@ def main():
     ap.add_argument("--dataset", help="default <collection>/lerobot_v3")
     ap.add_argument("--camera", help="head intrinsics yaml (default configs/cameras_osmo_nano.yaml, or <sim-gt>/cameras.yaml)")
     ap.add_argument("--sim-gt", help="<raw session>/sim_gt of a rendered capture: adds ground truth, sim world")
+    ap.add_argument("--gripper", choices=sorted(GRIP), default="right",
+                    help="which gripper to preview (left: gripper_pose_left/, preview_left/)")
     ap.add_argument("--width-open", type=float, default=0.072)
     ap.add_argument("--grasped-mesh", help="npz mesh of the grasped object (see objects.npz above)")
     ap.add_argument("--container-mesh", help="npz mesh of the container the object is placed in")
@@ -56,7 +58,9 @@ def main():
         sys.exit(f"{a.episode} not in {ds}: {sorted(eps)}")
     info = eps[a.episode]; n = info["length"]
     fps = float(json.load(open(os.path.join(ds, "meta", "info.json")))["fps"])
-    out = os.path.join(col, "preview", a.episode); os.makedirs(os.path.join(out, "extracted_images"), exist_ok=True)
+    out = os.path.join(col, "preview", a.episode)
+    pose_dir = "gripper_pose" + ("" if a.gripper == "right" else f"_{a.gripper}")   # gripper_pose.py naming
+    os.makedirs(os.path.join(out, "extracted_images"), exist_ok=True)
 
     # 1. head frames at the dataset rows + intrinsics at the clip size
     img = None
@@ -71,9 +75,9 @@ def main():
                    open(os.path.join(out, "camera.yaml"), "w"))
 
     # 2. body pose in the head camera
-    subprocess.check_call([a.python, os.path.join(ROOT, "scripts", "gripper_pose.py"), "--seq", out,
+    subprocess.check_call([a.python, os.path.join(ROOT, "scripts", "gripper_pose.py"), "--seq", out, "--gripper", a.gripper,
                            "--cam-source", "none"], cwd=ROOT)
-    pz = dict(np.load(os.path.join(out, "gripper_pose", "poses.npz"), allow_pickle=True))
+    pz = dict(np.load(os.path.join(out, pose_dir, "poses.npz"), allow_pickle=True))
     T_cam_tcp = pz["T_world_tcp"]                      # cam-source none: "world" = head camera
 
     # 3. head motion (SLAM) + jaw width (dataset gripper value)
@@ -83,7 +87,7 @@ def main():
     slam = np.load(sorted(hits, key=os.path.getmtime)[-1])["T_world_cam"][:n]
     df = pd.concat([pd.read_parquet(f) for f in glob.glob(os.path.join(ds, "data", "**", "*.parquet"), recursive=True)])
     d = df[df.episode_index == info["episode_index"]].sort_values("frame_index")
-    grip = np.stack(d["observation.state"].values)[:n, GRIP]
+    grip = np.stack(d["observation.state"].values)[:n, GRIP[a.gripper]]
     pz["width"] = a.width_open * (1 - grip); pz["width_src"] = np.ones(n, int)
 
     if a.sim_gt:
@@ -136,8 +140,8 @@ def main():
         np.savez_compressed(os.path.join(out, "objects.npz"), names=np.array(names), meshes=np.array(meshes),
                             poses=np.stack(poses))
         print(f"objects: {names}, grasp at row {k0}, release at row {k1} (placed from the gripper, approximate)")
-    np.savez_compressed(os.path.join(out, "gripper_pose", "poses.npz"), **pz)
-    print(f"ready: {out}\nnext: PYOPENGL_PLATFORM=egl {a.python} scripts/preview_gripper.py --seq {out} "
+    np.savez_compressed(os.path.join(out, pose_dir, "poses.npz"), **pz)
+    print(f"ready: {out}\nnext: PYOPENGL_PLATFORM=egl {a.python} scripts/preview_gripper.py --seq {out} --gripper {a.gripper} "
           f"--style presentation --ego")
 
 

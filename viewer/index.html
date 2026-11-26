@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gripper Viewer</title>
+<style>
+  :root { --bg:#15171c; --panel:#1e2128; --line:#2b2f38; --fg:#e7e9ee; --mute:#9aa1ad;
+          --right:#8f5cdb; --left:#26c7cc; --cam:#ffa028; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.4 system-ui, sans-serif; }
+  header { display:flex; flex-wrap:wrap; gap:12px 20px; align-items:center; padding:10px 16px; border-bottom:1px solid var(--line); }
+  header h1 { font-size:16px; margin:0; font-weight:600; }
+  header .sub { color:var(--mute); }
+  select, button { background:var(--panel); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:5px 10px; font:inherit; cursor:pointer; }
+  button.on { border-color:var(--cam); color:var(--cam); }
+  main { display:grid; grid-template-columns:minmax(320px, 40%) 1fr; gap:12px; padding:12px 16px; height:calc(100vh - 58px); }
+  .col { display:flex; flex-direction:column; gap:10px; min-height:0; }
+  video { width:100%; background:#000; border-radius:8px; display:block; }
+  #three { position:relative; border-radius:8px; overflow:hidden; background:#1c1f25; min-height:320px; }
+  #three canvas { display:block; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
+  .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  .kv { display:grid; grid-template-columns:auto 1fr; gap:3px 12px; font-variant-numeric:tabular-nums; }
+  .kv span:nth-child(odd) { color:var(--mute); }
+  .chip { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:6px; vertical-align:baseline; }
+  .legend { position:absolute; left:10px; bottom:10px; background:rgba(21,23,28,.8); border-radius:6px; padding:6px 10px; font-size:12px; display:flex; gap:12px; flex-wrap:wrap; }
+  .hint { color:var(--mute); font-size:12px; }
+  #status { color:var(--mute); }
+  @media (max-width: 900px) { main { grid-template-columns:1fr; height:auto; } #three { height:60vh; } }
+</style>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+               "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }
+</script>
+</head>
+<body>
+<header>
+  <h1>Dual-gripper reconstruction</h1><span class="sub" id="collection"></span>
+  <label>Episode <select id="ep"></select></label>
+  <span id="status">loading...</span>
+</header>
+<main>
+  <div class="col">
+    <video id="video" controls muted playsinline></video>
+    <div class="card row">
+      <label>Speed <select id="speed"><option>0.25</option><option>0.5</option><option selected>1</option><option>2</option></select></label>
+      <button id="vFront">Front</button><button id="vTop">Top</button><button id="vFollow">Follow head</button>
+      <button id="vTrack" class="on">Whole track</button>
+      <span class="hint">space = play/pause, &larr;/&rarr; = one frame, drag = orbit, scroll = zoom</span>
+    </div>
+    <div class="card kv" id="info"></div>
+    <div class="card kv" id="grav"></div>
+  </div>
+  <div id="three">
+    <div class="legend">
+      <span><i class="chip" style="background:var(--right)"></i>right gripper</span>
+      <span><i class="chip" style="background:var(--left)"></i>left gripper</span>
+      <span><i class="chip" style="background:var(--cam)"></i>head camera</span>
+      <span><i class="chip" style="background:#8a6a48"></i>table, z = 0 (gravity up, 10 cm grid)</span>
+    </div>
+  </div>
+</main>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const $ = id => document.getElementById(id);
+const COL = { right: 0x8f5cdb, left: 0x26c7cc, cam: 0xffa028 };
+const video = $('video'), box = $('three');
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+box.prepend(renderer.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x1c1f25);
+const camera = new THREE.PerspectiveCamera(45, 1, 0.01, 30); camera.up.set(0, 0, 1);
+const controls = new OrbitControls(camera, renderer.domElement); controls.enableDamping = true;
+const hemi = new THREE.HemisphereLight(0xffffff, 0x3a3f4a, 1.1); hemi.position.set(0, 0, 1); scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xffffff, 1.6); sun.position.set(1, -1.2, 2.5); scene.add(sun);
+scene.add(new THREE.AxesHelper(0.08));
+
+new ResizeObserver(() => {
+  const w = box.clientWidth, h = box.clientHeight;
+  renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix();
+}).observe(box);
+
+const M4 = (a, i) => new THREE.Matrix4().set(...a.slice(i * 16, i * 16 + 16));   // row-major 4x4
+let meshes = null, D = null, ep = null, last = -1, follow = false, followTgt = null;
+
+function gripperGeom(m) {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(m.v, 3)); g.setIndex(m.f); g.computeVertexNormals();
+  return g;
+}
+
+function build(d) {
+  if (ep) { scene.remove(ep.group); ep.group.traverse(o => { o.geometry?.dispose(); o.material?.dispose(); }); }
+  const group = new THREE.Group(), g = {};
+  // table
+  const [sx, sy] = d.table.size, [ox, oy] = d.table.offset;
+  const table = new THREE.Mesh(new THREE.PlaneGeometry(sx, sy),
+    new THREE.MeshStandardMaterial({ color: 0x8a6a48, roughness: 0.95, side: THREE.DoubleSide }));
+  table.position.set(ox, oy, -0.0005); group.add(table);
+  const gp = [];                                                 // 10 cm grid, only over the table
+  for (let x = ox - sx / 2; x <= ox + sx / 2 + 1e-6; x += 0.1) gp.push(x, oy - sy / 2, 0.0005, x, oy + sy / 2, 0.0005);
+  for (let y = oy - sy / 2; y <= oy + sy / 2 + 1e-6; y += 0.1) gp.push(ox - sx / 2, y, 0.0005, ox + sx / 2, y, 0.0005);
+  const gg = new THREE.BufferGeometry(); gg.setAttribute('position', new THREE.Float32BufferAttribute(gp, 3));
+  group.add(new THREE.LineSegments(gg, new THREE.LineBasicMaterial({ color: 0x5d4a35 })));
+  // grippers: mesh + trail up to now + whole track (faint)
+  for (const [name, gr] of Object.entries(d.grippers)) {
+    const mesh = new THREE.Mesh(gripperGeom(meshes[name]),
+      new THREE.MeshStandardMaterial({ color: COL[name], roughness: 0.55, metalness: 0.05, flatShading: true }));
+    mesh.matrixAutoUpdate = false; group.add(mesh);
+    const pos = [], fr = [];
+    for (let k = 0; k + 1 < d.n; k++) if (gr.vis[k] && gr.vis[k + 1]) { pos.push(...gr.tcp.slice(3 * k, 3 * k + 6)); fr.push(k + 1); }
+    const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    const trail = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: COL[name] })); group.add(trail);
+    const full = new THREE.LineSegments(geo.clone(), new THREE.LineBasicMaterial({ color: COL[name], transparent: true, opacity: 0.22 }));
+    group.add(full);
+    g[name] = { mesh, trail, full, fr, gr };
+  }
+  // head camera: frustum (OpenCV frame) + path
+  const c = d.cam, dep = 0.08, cs = [[0, 0], [c.w, 0], [c.w, c.h], [0, c.h]].map(([u, v]) =>
+    new THREE.Vector3((u - c.cx) / c.fx * dep, (v - c.cy) / c.fy * dep, dep));
+  const fp = []; const o = new THREE.Vector3();
+  for (let i = 0; i < 4; i++) fp.push(o, cs[i], cs[i], cs[(i + 1) % 4]);
+  const frus = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(fp), new THREE.LineBasicMaterial({ color: COL.cam }));
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.035, 0.03), new THREE.MeshStandardMaterial({ color: 0xc8ccd2 }));
+  body.position.z = -0.016; frus.add(body); frus.matrixAutoUpdate = false; group.add(frus);
+  const cp = []; for (let k = 0; k < d.n; k++) cp.push(c.T[k * 16 + 3], c.T[k * 16 + 7], c.T[k * 16 + 11]);
+  const cg = new THREE.BufferGeometry(); cg.setAttribute('position', new THREE.Float32BufferAttribute(cp, 3));
+  const cpath = new THREE.Line(cg, new THREE.LineBasicMaterial({ color: COL.cam, transparent: true, opacity: 0.7 })); group.add(cpath);
+  scene.add(group);
+  ep = { group, g, frus, cpath };
+  setTrack($('vTrack').classList.contains('on'));
+  viewFront(); last = -1;
+  const gv = d.gravity;
+  $('grav').innerHTML = `<span>World frame</span><span>z = gravity up (Metric3D table plane, ${gv.spread_deg_median.toFixed(1)}&deg; median spread); origin on the table under the first head pose</span>
+    <span>Head</span><span>${(100 * gv.head_height_above_table).toFixed(0)} cm above the table, pitched ${gv.head_pitch_down_deg.toFixed(0)}&deg; down</span>
+    <span>Depth scale</span><span>Metric3D &times; ${(gv.metric3d_scale ?? 1).toFixed(2)} to match the ArUco tags</span>
+    <span>Pose coverage</span><span>${Object.entries(d.grippers).map(([k, v]) => `${k} ${v.coverage} %`).join(', ')} (EMA 0.18; gaps &gt; 5 rows hidden)</span>`;
+}
+
+function setTrack(on) { if (ep) for (const x of Object.values(ep.g)) x.full.visible = on; }
+
+function bounds() {
+  const b = new THREE.Box3();
+  for (const x of Object.values(ep.g)) for (let k = 0; k < D.n; k++) if (x.gr.vis[k])
+    b.expandByPoint(new THREE.Vector3(...x.gr.tcp.slice(3 * k, 3 * k + 3)));
+  return b;
+}
+function viewFront() {
+  const b = bounds(), c = b.getCenter(new THREE.Vector3()), r = Math.max(b.getSize(new THREE.Vector3()).length() / 2, 0.25);
+  controls.target.copy(c); camera.position.copy(c.clone().add(new THREE.Vector3(1, 0.35, 0.8).normalize().multiplyScalar(r * 2.0)));
+  follow = false; $('vFollow').classList.remove('on');
+}
+function viewTop() {
+  const b = bounds(), c = b.getCenter(new THREE.Vector3()), r = Math.max(b.getSize(new THREE.Vector3()).length() / 2, 0.25);
+  controls.target.copy(c); camera.position.set(c.x - 0.001, c.y, c.z + r * 2.0);
+  follow = false; $('vFollow').classList.remove('on');
+}
+
+function update(f) {
+  const lo = (arr, v) => { let a = 0, b = arr.length; while (a < b) { const m = (a + b) >> 1; arr[m] <= v ? a = m + 1 : b = m; } return a; };
+  const rowsInfo = [];
+  const mids = [];
+  for (const [name, x] of Object.entries(ep.g)) {
+    const vis = !!x.gr.vis[f];
+    x.mesh.visible = vis; if (vis) x.mesh.matrix.copy(M4(x.gr.T, f));
+    x.trail.geometry.setDrawRange(0, 2 * lo(x.fr, f));
+    const z = x.gr.tcp[3 * f + 2];
+    if (vis) mids.push(new THREE.Vector3(...x.gr.tcp.slice(3 * f, 3 * f + 3)));
+    rowsInfo.push(`<span><i class="chip" style="background:var(--${name})"></i>${name}</span><span>${vis ? `TCP ${(100 * z).toFixed(1)} cm above the table` : 'no pose (markers not seen)'}</span>`);
+  }
+  ep.frus.matrix.copy(M4(D.cam.T, f)); ep.cpath.geometry.setDrawRange(0, f + 1);
+  if (follow) {
+    const h = new THREE.Vector3(D.cam.T[f * 16 + 3], D.cam.T[f * 16 + 7], D.cam.T[f * 16 + 11]);
+    const tgt = mids.length ? mids.reduce((a, b) => a.add(b), new THREE.Vector3()).multiplyScalar(1 / mids.length) : (followTgt || h);
+    followTgt = followTgt ? followTgt.lerp(tgt, 0.15) : tgt.clone();
+    camera.position.lerp(h.clone().add(new THREE.Vector3(-0.45, 0, 0.25)), 0.15); controls.target.copy(followTgt);
+  }
+  const t = f / D.fps;
+  $('info').innerHTML = `<span>Frame</span><span>${f + 1} / ${D.n} &nbsp; ${t.toFixed(2)} s</span>` + rowsInfo.join('');
+}
+
+function loop() {
+  requestAnimationFrame(loop);
+  if (D) {
+    const f = Math.min(D.n - 1, Math.max(0, Math.floor(video.currentTime * D.fps + 1e-3)));
+    if (f !== last || follow) { update(f); last = f; }
+  }
+  controls.update(); renderer.render(scene, camera);
+}
+
+async function load(name) {
+  $('status').textContent = `loading ${name}...`;
+  D = await fetch(`${name}.json`).then(r => r.json());
+  build(D);
+  const blob = await fetch(`${name}.mp4`).then(r => r.blob());          // blob URL: seeking works without range requests
+  if (video.src) URL.revokeObjectURL(video.src);
+  video.src = URL.createObjectURL(blob); video.playbackRate = +$('speed').value;
+  $('status').textContent = `${name}: ${D.n} rows at ${D.fps} fps`;
+  try { localStorage.setItem('viewer-ep', name); } catch (e) {}
+}
+
+const idx = await fetch('index.json').then(r => r.json());
+meshes = await fetch('meshes.json').then(r => r.json());
+$('collection').textContent = idx.collection;
+for (const e of idx.episodes) $('ep').add(new Option(e, e));
+let start = idx.episodes[0]; try { const s = localStorage.getItem('viewer-ep'); if (idx.episodes.includes(s)) start = s; } catch (e) {}
+$('ep').value = start;
+$('ep').onchange = e => load(e.target.value);
+$('speed').onchange = e => video.playbackRate = +e.target.value;
+$('vFront').onclick = viewFront; $('vTop').onclick = viewTop;
+$('vFollow').onclick = () => { follow = !follow; $('vFollow').classList.toggle('on', follow); followTgt = null; };
+$('vTrack').onclick = () => { const on = !$('vTrack').classList.contains('on'); $('vTrack').classList.toggle('on', on); setTrack(on); };
+window.addEventListener('keydown', e => {
+  if (e.target.tagName === 'SELECT') return;
+  if (e.code === 'Space') { e.preventDefault(); video.paused ? video.play() : video.pause(); }
+  if (e.code === 'ArrowRight' || e.code === 'ArrowLeft') {
+    e.preventDefault(); video.pause(); video.currentTime = Math.max(0, video.currentTime + (e.code === 'ArrowRight' ? 1 : -1) / D.fps);
+  }
+});
+await load(start);
+loop();
+</script>
+</body>
+</html>

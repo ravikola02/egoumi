@@ -76,6 +76,27 @@ Results on the rendered capture (Osmo Nano intrinsics, textured room; `sim/check
 - **Texture:** in the earlier plain-coloured sim room SLAM failed (Metric3D scale 3.9× off, 13 mm per-frame jitter,
   TCP 37 mm median). Real rooms have texture; a bare white workspace would not.
 
+## Two-gripper preview and web viewer
+After a `--state-source aruco --grippers right,left` build (SLAM cache present):
+```bash
+PYOPENGL_PLATFORM=egl ~/anaconda3/envs/hawor/bin/python scripts/dual_preview.py --collection data/output/<c> --episode ep001
+~/anaconda3/envs/hawor/bin/python scripts/export_viewer.py --collection data/output/<c>      # every episode with a scene
+python3 -m http.server 8771 --bind 127.0.0.1 --directory data/output/<c>/viewer               # open http://127.0.0.1:8771/
+```
+- `dual_preview.py` renders both grippers in one scene (recording + mesh overlay | front view | ego view) and writes
+  `preview/<ep>/preview_dual/{dual_preview.mp4,scene.npz,gravity.json}`; `--scene-only` skips the video.
+- **World frame (display only; the dataset keeps the first head-camera frame):** z = gravity up from the table plane
+  (Metric3D depth on 12 head frames, RANSAC, rotated into the SLAM world), origin on the table under the first head
+  pose, y = the operator's left from the right-to-left gripper chord (with one gripper: head -> TCP).
+- **Metric3D depth is rescaled to the ArUco tags** before the table height is used: on the 2026-11-24 dual-arm sample
+  it read 1.32x short (IQR 1.23-1.52) with the f = 600 px intrinsics. The SLAM translations are NOT rescaled: the
+  world gripper tracks are steadiest unscaled (frame-to-frame jump median 5.4 mm vs 5.8 / 7.6 mm at x1.32 / x2).
+- The world view uses the converter's causal EMA (0.18, SO(3) for rotation) per tracked run; the overlay stays raw.
+  Gaps longer than 5 rows hide that gripper instead of holding it. Jaws are drawn open (gripper value not shown).
+- `viewer/index.html` (three.js 0.160 from jsDelivr): video and 3D scene synced on `video.currentTime`; front / top /
+  follow-head views, whole-track toggle, speed, space and arrow-key stepping. The video is fetched as a blob, so seeking
+  works with Python's `http.server` (no range requests). Local only: the footage stays on this machine.
+
 ## Data layout
 Everything lives under the data root, `<repo>/data` by default or `--data-root` / `EGOUMI_DATA_ROOT`
 (for example an external SSD).
